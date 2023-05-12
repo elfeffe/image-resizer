@@ -1,5 +1,5 @@
 <picture
-    class="object-center object-cover flex {{ $position }}"
+    class="object-center object-cover flex {{ $class }}"
     width="{{ $width }}"
     height="{{ $height }}"
 >

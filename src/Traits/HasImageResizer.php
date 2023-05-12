@@ -63,8 +63,15 @@ trait HasImageResizer
         };
     }
 
-    public function getMediaHtml($media, $width, $height, $type, $extraAttributes = [], $name = 'image', $position = 'justify-center items-center')
+    public function getMediaHtml($media, $width, $height, $type, $extraAttributes = [], $name = 'image', $class = null, $extraClass = null)
     {
+        if(!$class)
+        {
+            $class = 'justify-center items-center ';
+        }
+
+        $class .= ' ' . $extraClass;
+
         if (!$height) {
             $height = 'null';
         }
@@ -122,7 +129,7 @@ trait HasImageResizer
             'src' => $src,
             'width' => $originalWidth,
             'height' => $originalHeight,
-            'position' => $position,
+            'class' => $class,
         ]);
     }
 
