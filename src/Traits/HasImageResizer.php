@@ -23,9 +23,12 @@ trait HasImageResizer
         return $class->getFriendlyImageUrl($width, $height, $type, $media, $name, $mimeConvert);
     }
 
-    public function getThumbnailMedia($collection = null)
+    public function getThumbnailMedia($collection = 'default')
     {
-        return $this->getFinalMedia()->first();
+        return blink()->once('getThumbnailMedia_' . $collection . $this->id, function() use ($collection)
+        {
+            return $this->getFinalMedia($collection)->first();
+        });
     }
 
     public function getFinalMedia($collection = 'default')
