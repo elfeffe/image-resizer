@@ -88,6 +88,8 @@ trait HasImageResizer
 
         $width = ceil($width * 2);
 
+        $srcset = '';
+        $srcsetWebp = '';
         if (is_int($height)) {
             $height = ceil($height * 2);
             $srcset = $this->getFriendlyImageUrl($width, $height, $type, $media, $name) . ' 2x, ';
@@ -97,17 +99,17 @@ trait HasImageResizer
             $srcsetWebp = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp') . ' 2x, ';
         }
 
-        while ($width > 32) {
-            $width = ceil($width * 0.7);
-
+        while ($width > 150) {
             if (is_int($height)) {
-                $height = ceil($height * 0.7);
+                $height = ceil($height * 0.5);
                 $srcset .= $this->getFriendlyImageUrl($width, $height, $type, $media, $name) . ' ' . $width . 'w, ';
                 $srcsetWebp .= $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp') . ' ' . $width . 'w, ';
             } else {
                 $srcset .= $this->getFriendlyImageUrl($width, $height, $type, $media, $name) . ' ' . $width . 'w, ';
                 $srcsetWebp .= $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp') . ' ' . $width . 'w, ';
             }
+
+            $width = ceil($width * 0.5);
         }
 
         $attributeString = collect($extraAttributes)
@@ -115,8 +117,8 @@ trait HasImageResizer
 
         $loadingAttributeValue = null;
 
-        $src = $this->getFriendlyImageUrl(10, 10, $type, $media, $name);
-        $srcWebp = $this->getFriendlyImageUrl(10, 10, $type, $media, $name, 'image/webp');
+        $src = $this->getFriendlyImageUrl(32, $height, 'resize', $media, $name);
+        $srcWebp = $this->getFriendlyImageUrl(32, $height, 'resize', $media, $name, 'image/webp');
 
         if($originalHeight == 'null' || !$originalHeight)
         {

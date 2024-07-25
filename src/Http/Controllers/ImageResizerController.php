@@ -66,7 +66,7 @@ class ImageResizerController extends Controller
 
         if ($request->type === 'fit') {
             $image->fit($request->w, $request->h, function ($constraint) {
-                //$constraint->upsize();
+                $constraint->upsize();
             });
         }
 
