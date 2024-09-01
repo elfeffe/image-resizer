@@ -138,11 +138,11 @@ trait HasImageResizer
         ]);
     }
 
-    public function getThumbnailHtml($width, $height, $type, $extraAttributes = [], $name = null)
+    public function getThumbnailHtml($width, $height, $type, $extraAttributes = [], $name = null, $class = null, $extraClass = null)
     {
         $media = $this->getThumbnailMedia();
 
-        return $this->getMediaHtml($media, $width, $height, $type, $extraAttributes, $name);
+        return $this->getMediaHtml($media, $width, $height, $type, $extraAttributes, $name, $class, $extraClass);
     }
 }
 
