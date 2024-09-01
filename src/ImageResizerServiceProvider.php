@@ -21,6 +21,11 @@ class ImageResizerServiceProvider extends PackageServiceProvider
 
     public function boot()
     {
+        // Register the 'image-resizer' service
+        $this->app->singleton('image-resizer', function ($app) {
+            return new ImageResizer; // Ensure ImageResizer class exists and is imported
+        });
+
         app()->config["filesystems.disks.image_resizer"] = [
             'driver' => 'local',
             'root' => storage_path('app/public/image_resizer'),
