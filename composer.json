@@ -1,0 +1,51 @@
+{
+    "name": "elfeffe/image-resizer",
+    "description": "Image Resizer Controller",
+    "keywords": [
+        "elfeffe",
+        "laravel",
+        "image-resizer"
+    ],
+    "homepage": "https://github.com/elfeffe/image-resizer",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Federico Reggiani",
+            "email": "elfeffe@gmail.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "bepsvpt/blurhash": "^4.0",
+        "intervention/image": "^3.8",
+        "laravel/framework": "^11.0 || ^12.0",
+        "spatie/laravel-package-tools": "^1.16"
+    },
+    "autoload": {
+        "psr-4": {
+            "Elfeffe\\ImageResizer\\": "src",
+            "Elfeffe\\ImageResizer\\Database\\Factories\\": "database/factories"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Elfeffe\\ImageResizer\\Tests\\": "tests"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Elfeffe\\ImageResizer\\ImageResizerServiceProvider"
+            ],
+            "aliases": {
+                "ImageResizer": "Elfeffe\\ImageResizer\\ImageResizerFacade"
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

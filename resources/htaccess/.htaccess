@@ -1,0 +1,8 @@
+# Image Resizer Performance Optimization
+# This rule serves cached images directly from filesystem when available,
+# falling back to Laravel dynamic processing when not cached yet.
+
+# Image Resizer Rule - Check for cached file first, then fallback to Laravel
+RewriteCond %{REQUEST_URI} ^/image_resizer/([^/]*)/w/([^/]*)/h/([^/]*)/([^/]*)/([^.]*)\.(.*)$
+RewriteCond %{DOCUMENT_ROOT}/storage/image_resizer/%1/%2x%3/%4.%6 -f
+RewriteRule ^image_resizer/([^/]*)/w/([^/]*)/h/([^/]*)/([^/]*)/([^.]*)\.(.*)$ /storage/image_resizer/$1/$2x$3/$4.$6 [L] 
