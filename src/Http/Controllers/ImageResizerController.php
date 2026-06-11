@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Drivers\Imagick\Driver;
+use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
@@ -158,7 +159,9 @@ class ImageResizerController extends Controller
         $file = $request->img.'/'.$request->w.'x'.$request->h.'/'.$request->type.'.'.$safeExt;
 
         $manager = new ImageManager(Driver::class);
-        $image = $manager->read($imageData);
+        // intervention/image v4: read() -> decode() (which returns the
+        // decoded binary; chained to create the image).
+        $image = $manager->createImage($manager->decode($imageData));
 
         // If height is null, calculate it based on aspect ratio
         if ($height === null) {
@@ -172,17 +175,17 @@ class ImageResizerController extends Controller
         if ($request->type === 'resize') {
             $image->scaleDown(width: $request->w, height: $height);
         } elseif ($request->type === 'fit') {
-            // Since the fit() method isn't available in your version,
-            // we use cover() to crop and resize the image.
+            // fit() not available; use cover() to crop+resize.
             $image->cover($request->w, $height, 'center');
         }
 
         $quality = 82;
 
+        // v4: toPng/toJpeg/toWebp -> encode(Format::X).
         $encoded = match ($safeExt) {
-            'png' => $image->toPng(interlaced: true),
-            'webp' => $image->toWebp($quality),
-            default => $image->toJpeg($quality, progressive: true),
+            'png' => $image->encode(new Format(Format::PNG, interlaced: true)),
+            'webp' => $image->encode(new Format(Format::WEBP, quality: $quality)),
+            default => $image->encode(new Format(Format::JPEG, quality: $quality, progressive: true)),
         };
 
         // Save the encoded image to the storage disk.
