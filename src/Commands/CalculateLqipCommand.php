@@ -42,12 +42,14 @@ class CalculateLqipCommand extends Command
             return in_array(HasImageResizer::class, $traits);
         });
 
-        // If not forcing, only process media without complete LQIP data
+        // If not forcing, only process media missing LQIP color or BlurHash.
+        // A missing JSON key resolves to NULL via json_extract, so whereNull
+        // matches both absent keys and explicit nulls.
         if (!$force) {
             $query->where(function ($query) {
-                $query->whereJsonDoesntContain('custom_properties->lqip_color', null)
-                      ->orWhereJsonDoesntContain('custom_properties->blurhash', null)
-                      ->orWhereNull('custom_properties');
+                $query->whereNull('custom_properties')
+                      ->orWhereNull('custom_properties->lqip_color')
+                      ->orWhereNull('custom_properties->blurhash');
             });
         }
 
