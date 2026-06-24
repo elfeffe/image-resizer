@@ -160,8 +160,8 @@ class ImageResizerController extends Controller
 
         $file = $request->img.'/'.$request->w.'x'.$request->h.'/'.$request->type.'.'.$safeExt;
 
-        $manager = new ImageManager(Driver::class);
-        $image = $manager->read($imageData);
+        $manager = ImageManager::usingDriver(Driver::class);
+        $image = $manager->decode($imageData);
 
         // If height is null, calculate it based on aspect ratio
         if ($height === null) {
