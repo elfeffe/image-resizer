@@ -1,6 +1,8 @@
 @php
-$canvasId = 'blurhash-' . uniqid();
-$imgId = 'img-' . uniqid();
+$placeholderSeed = ($blurHash ?? '').'|'.($src ?? '').'|'.($srcset ?? '').'|'.$width.'x'.$height;
+$placeholderHash = substr(md5($placeholderSeed), 0, 13);
+$canvasId = 'blurhash-' . $placeholderHash;
+$imgId = 'img-' . $placeholderHash;
 @endphp
 
 <div class="relative w-full h-full overflow-hidden image-resizer-container" 
