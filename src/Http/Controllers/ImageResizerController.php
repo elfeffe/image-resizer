@@ -70,13 +70,17 @@ class ImageResizerController extends Controller
                 ->header('Connection', 'Keep-alive')
                 ->header('X-Image-Resizer', 'true');
         } catch (\Exception $e) {
-            if (str_contains($e->getMessage(), 'Unable to decode input') ||
-                str_contains($e->getMessage(), 'corrupted') ||
-                str_contains($e->getMessage(), 'invalid')) {
+            $message = $e->getMessage();
+
+            if (str_contains($message, 'Unable to decode input') ||
+                str_contains($message, 'Failed to decode') ||
+                str_contains($message, 'unsupported image format') ||
+                str_contains($message, 'corrupted') ||
+                str_contains($message, 'invalid')) {
                 abort(404, 'Image file corrupted or invalid format');
             }
 
-            \Log::error("Image resizer: processing error for media {$this->media->getKey()}: {$e->getMessage()}");
+            \Log::error("Image resizer: processing error for media {$this->media->getKey()}: {$message}");
             abort(500, 'Error processing image');
         }
     }
