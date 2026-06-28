@@ -154,7 +154,8 @@ class ImageResizerController extends Controller
 
     public function processImage(Request $request, string $imageData)
     {
-        $height = $request->h === 'null' ? null : $request->h;
+        $width = (int) $request->w;
+        $height = $request->h === 'null' ? null : (int) $request->h;
 
         $safeExt = match (strtolower($request->ext)) {
             'png' => 'png',
@@ -172,15 +173,15 @@ class ImageResizerController extends Controller
             $originalWidth = $image->width();
             $originalHeight = $image->height();
             $aspectRatio = $originalHeight / $originalWidth;
-            $height = round($request->w * $aspectRatio);
+            $height = (int) round($width * $aspectRatio);
         }
 
         // Process the image based on request type.
         if ($request->type === 'resize') {
-            $image->scaleDown(width: $request->w, height: $height);
+            $image->scaleDown(width: $width, height: $height);
         } elseif ($request->type === 'fit') {
             // fit() not available; use cover() to crop+resize.
-            $image->cover($request->w, $height, 'center');
+            $image->cover($width, $height, 'center');
         }
 
         $quality = 82;
