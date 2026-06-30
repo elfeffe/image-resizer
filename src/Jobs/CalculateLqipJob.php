@@ -2,16 +2,17 @@
 
 namespace Elfeffe\ImageResizer\Jobs;
 
+use Bepsvpt\Blurhash\Facades\BlurHash;
+use Exception;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
-use Bepsvpt\Blurhash\Facades\BlurHash;
-use Exception;
 
-class CalculateLqipJob implements ShouldQueue
+class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -30,11 +31,23 @@ class CalculateLqipJob implements ShouldQueue
     public $timeout = 60;
 
     /**
+     * The number of seconds the unique lock should be maintained.
+     *
+     * @var int
+     */
+    public $uniqueFor = 3600;
+
+    /**
      * Create a new job instance.
      */
     public function __construct(
         protected int $mediaId
     ) {}
+
+    public function uniqueId(): string
+    {
+        return (string) $this->mediaId;
+    }
 
     /**
      * Execute the job.
@@ -44,8 +57,8 @@ class CalculateLqipJob implements ShouldQueue
         try {
             // Load the media item
             $media = Media::find($this->mediaId);
-            
-            if (!$media) {
+
+            if (! $media) {
                 // Media was likely deleted between job dispatch and execution
                 // This is normal behavior, just exit silently
                 return;
@@ -58,18 +71,18 @@ class CalculateLqipJob implements ShouldQueue
 
             // Get the media file path
             $imagePath = $media->getPath();
-            
-            if (!file_exists($imagePath)) {
+
+            if (! file_exists($imagePath)) {
                 throw new Exception("Media file not found: {$imagePath}");
             }
 
             // Only process image files
-            if (!$this->isImageFile($media->mime_type)) {
+            if (! $this->isImageFile($media->mime_type)) {
                 return;
             }
 
             // Calculate dominant color if not exists
-            if (!$media->hasCustomProperty('lqip_color')) {
+            if (! $media->hasCustomProperty('lqip_color')) {
                 $dominantColor = $this->calculateDominantColor($imagePath);
                 if ($dominantColor) {
                     $media->setCustomProperty('lqip_color', $dominantColor);
@@ -77,7 +90,7 @@ class CalculateLqipJob implements ShouldQueue
             }
 
             // Generate BlurHash if not exists
-            if (!$media->hasCustomProperty('blurhash')) {
+            if (! $media->hasCustomProperty('blurhash')) {
                 $blurHash = $this->generateBlurHash($imagePath);
                 if ($blurHash) {
                     $media->setCustomProperty('blurhash', $blurHash);
@@ -103,12 +116,12 @@ class CalculateLqipJob implements ShouldQueue
             // Higher values = more detail but larger hash strings
             $blurHash = app('blurhash')
                 ->setComponentX(6)  // Horizontal detail
-                ->setComponentY(4)  // Vertical detail  
+                ->setComponentY(4)  // Vertical detail
                 ->setMaxSize(128)   // Resize image for processing (balance speed vs quality)
                 ->encode($imagePath);
-            
+
             return $blurHash;
-            
+
         } catch (Exception $e) {
             // Silently ignore - BlurHash is non-critical
             return null;
@@ -120,12 +133,12 @@ class CalculateLqipJob implements ShouldQueue
      */
     protected function isImageFile(?string $mimeType): bool
     {
-        if (!$mimeType) {
+        if (! $mimeType) {
             return false;
         }
 
-        return str_starts_with($mimeType, 'image/') && 
-               !in_array($mimeType, ['image/svg+xml', 'image/gif']); // Skip SVG and GIF
+        return str_starts_with($mimeType, 'image/') &&
+               ! in_array($mimeType, ['image/svg+xml', 'image/gif']); // Skip SVG and GIF
     }
 
     /**
@@ -136,10 +149,10 @@ class CalculateLqipJob implements ShouldQueue
         try {
             // Get image info first
             $imageInfo = getimagesize($imagePath);
-            if (!$imageInfo) {
+            if (! $imageInfo) {
                 return '#f0f0f0';
             }
-            
+
             // Create image resource from file
             $image = null;
             switch ($imageInfo['mime']) {
@@ -155,55 +168,55 @@ class CalculateLqipJob implements ShouldQueue
                 default:
                     return '#f0f0f0';
             }
-            
-            if (!$image) {
+
+            if (! $image) {
                 return '#f0f0f0';
             }
-            
+
             // Resize to small image for faster processing
             $smallImage = imagecreatetruecolor(50, 50);
             imagecopyresampled($smallImage, $image, 0, 0, 0, 0, 50, 50, imagesx($image), imagesy($image));
-            
+
             // Sample colors
             $colors = [];
             $totalPixels = 0;
-            
+
             for ($x = 0; $x < 50; $x++) {
                 for ($y = 0; $y < 50; $y++) {
                     $rgb = imagecolorat($smallImage, $x, $y);
-                    
+
                     // Extract RGB values
                     $r = ($rgb >> 16) & 0xFF;
                     $g = ($rgb >> 8) & 0xFF;
                     $b = $rgb & 0xFF;
-                    
+
                     $colors[] = ['r' => $r, 'g' => $g, 'b' => $b];
                     $totalPixels++;
                 }
             }
-            
+
             // Clean up memory
             imagedestroy($image);
             imagedestroy($smallImage);
-            
+
             if ($totalPixels === 0) {
                 return '#f0f0f0';
             }
-            
+
             // Calculate average color
             $avgR = array_sum(array_column($colors, 'r')) / $totalPixels;
             $avgG = array_sum(array_column($colors, 'g')) / $totalPixels;
             $avgB = array_sum(array_column($colors, 'b')) / $totalPixels;
-            
+
             // Convert to hex color
-            $hex = sprintf('#%02x%02x%02x', 
-                (int) round($avgR), 
-                (int) round($avgG), 
+            $hex = sprintf('#%02x%02x%02x',
+                (int) round($avgR),
+                (int) round($avgG),
                 (int) round($avgB)
             );
-            
+
             return $hex;
-            
+
         } catch (Exception $e) {
             // Fallback: return a neutral color
             return '#f0f0f0';
@@ -217,4 +230,4 @@ class CalculateLqipJob implements ShouldQueue
     {
         // Silently ignore - LQIP is non-critical functionality
     }
-} 
+}

@@ -2,27 +2,23 @@
 
 namespace Elfeffe\ImageResizer;
 
-use Elfeffe\BuilderComponent\View\Components\Element;
 use Elfeffe\BuilderComponent\View\Components\Image;
-use Elfeffe\BuilderComponent\View\Components\Input;
-use Elfeffe\BuilderComponent\View\Components\Modal;
-use Elfeffe\BuilderComponent\View\Components\RawText;
-use Elfeffe\BuilderComponent\View\Components\Text;
-use Elfeffe\CommerceBlocks\Shortcodes\ProductGalleryShortcode;
-use Elfeffe\ImageResizer\Shortcodes\MediaLibraryItem;
+use Elfeffe\ImageResizer\Commands\CalculateLqipCommand;
+use Elfeffe\ImageResizer\Commands\ImageResizerCommand;
+use Elfeffe\ImageResizer\Console\Commands\InstallHtaccessCommand;
 use Elfeffe\ImageResizer\Observers\MediaObserver;
+use Elfeffe\ImageResizer\Shortcodes\MediaLibraryItem;
+use Elfeffe\ImageResizer\Support\QueuesMissingLqipData;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Event;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use Elfeffe\ImageResizer\Commands\ImageResizerCommand;
-use Elfeffe\ImageResizer\Commands\CalculateLqipCommand;
-use Elfeffe\ImageResizer\Console\Commands\InstallHtaccessCommand;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Webwizo\Shortcodes\Facades\Shortcode;
 
 class ImageResizerServiceProvider extends PackageServiceProvider
 {
-
     public function boot()
     {
         // Register the 'image-resizer' service
@@ -30,7 +26,7 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             return new ImageResizer; // Ensure ImageResizer class exists and is imported
         });
 
-        app()->config["filesystems.disks.image_resizer"] = [
+        app()->config['filesystems.disks.image_resizer'] = [
             'driver' => 'local',
             'root' => storage_path('app/public/image_resizer'),
             'url' => config('app.url').'/storage/image_resizer',
@@ -43,9 +39,9 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             InstallHtaccessCommand::class,
         ]);
 
-        $this->loadRoutesFrom(__DIR__ . '/../routes/web.php');
+        $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
 
-        $this->loadViewsFrom(__DIR__ . '/../resources/views', 'resizer');
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'resizer');
 
         // Publish built assets
         $this->publishes([
@@ -59,12 +55,21 @@ class ImageResizerServiceProvider extends PackageServiceProvider
 
         // Register MediaObserver to automatically calculate LQIP colors
         Media::observe(MediaObserver::class);
+        Event::listen('eloquent.saved: *', function (string $eventName, array $models): void {
+            $model = $models[0] ?? null;
+
+            if (! $model instanceof Model) {
+                return;
+            }
+
+            app(QueuesMissingLqipData::class)->forModel($model);
+        });
 
         if (class_exists(Shortcode::class)) {
             Shortcode::register('media-library-item', MediaLibraryItem::class);
         }
 
-        Blade::component('media-library-item', \Elfeffe\ImageResizer\View\MediaLibraryItem::class);
+        Blade::component('media-library-item', View\MediaLibraryItem::class);
 
         // Register Blade directives
         $this->registerBladeDirectives();
@@ -86,7 +91,7 @@ class ImageResizerServiceProvider extends PackageServiceProvider
     public static function styles(): string
     {
         $cssPath = asset('vendor/image-resizer/css/image-resizer.css');
-        
+
         return <<<HTML
         <link rel="stylesheet" href="{$cssPath}">
         HTML;
@@ -95,7 +100,7 @@ class ImageResizerServiceProvider extends PackageServiceProvider
     public static function scripts(): string
     {
         $jsPath = asset('vendor/image-resizer/js/image-resizer.js');
-        
+
         return <<<HTML
         <script src="{$jsPath}"></script>
         HTML;
