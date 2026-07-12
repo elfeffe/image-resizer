@@ -17,16 +17,16 @@ trait HasImageResizer
         32,
     ];
 
-    public static function getFriendly($width, $height = 'null', $type = 'resize', $media = null, $name = null, $mimeConvert = null): string|null
+    public static function getFriendly($width, $height = 'null', $type = 'resize', $media = null, $name = null, $mimeConvert = null): ?string
     {
-        $class = new self();
+        $class = new self;
+
         return $class->getFriendlyImageUrl($width, $height, $type, $media, $name, $mimeConvert);
     }
 
     public function getThumbnailMedia($collection = 'default')
     {
-        return blink()->once('getThumbnailMedia_' . $collection . $this->id, function() use ($collection)
-        {
+        return blink()->once('getThumbnailMedia_'.$collection.$this->id, function () use ($collection) {
             return $this->getFinalMedia($collection)->first();
         });
     }
@@ -36,39 +36,34 @@ trait HasImageResizer
         return $this->getMedia($collection);
     }
 
-    public function getFriendlyImageUrl($width, $height = 'null', $type = 'resize', $media = null, $name = null, $mimeConvert = null): string|null
+    public function getFriendlyImageUrl($width, $height = 'null', $type = 'resize', $media = null, $name = null, $mimeConvert = null): ?string
     {
-        if (!$name) {
+        if (! $name) {
             $name = $this->name;
         }
 
-        if (!$media) {
+        if (! $media) {
             $media = $this->getThumbnailMedia();
         }
 
-        if (!$media) {
+        if (! $media) {
             return null;
         }
 
-        if(!$mimeConvert)
-        {
+        if (! $mimeConvert) {
             $mimeConvert = $media['mime_type'];
         }
 
         // Use relative URLs to avoid mixed content issues
         return match ($mimeConvert) {
-            'image/jpg', 'image/jpeg' =>
-                '/image_resizer/' . $media->id . '/w/' . $width . '/h/' . $height . '/' . $type . '/' . Str::slug($name, '_') . '.jpg',
-            'image/png' =>
-                '/image_resizer/' . $media->id . '/w/' . $width . '/h/' . $height . '/' . $type . '/' . Str::slug($name, '_') . '.png',
-            'image/webp' =>
-                '/image_resizer/' . $media->id . '/w/' . $width . '/h/' . $height . '/' . $type . '/' . Str::slug($name, '_') . '.webp',
-            default => 
-                '/image_resizer/' . $media->id . '/w/' . $width . '/h/' . $height . '/' . $type . '/' . Str::slug($name, '_') . '.jpg',
+            'image/jpg', 'image/jpeg' => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.jpg',
+            'image/png' => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.png',
+            'image/webp' => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.webp',
+            default => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.jpg',
         };
     }
 
-    public function getMediaUrl($media, $width, $height = null, $type = 'resize', $name = null, $mimeConvert = null): string|null
+    public function getMediaUrl($media, $width, $height = null, $type = 'resize', $name = null, $mimeConvert = null): ?string
     {
         if ($height === null) {
             $height = 'null';
@@ -86,7 +81,7 @@ trait HasImageResizer
      */
     private function normalizeMimeType(?string $mimeType): ?string
     {
-        if (!$mimeType) {
+        if (! $mimeType) {
             return null;
         }
 
@@ -102,22 +97,23 @@ trait HasImageResizer
     public function getMediaHtml($media, $width, $height, $type, $extraAttributes = [], $name = 'image', $class = null, $extraClass = null)
     {
         // Handle null media gracefully
-        if (!$media) {
-            return '<div class="bg-gray-200 flex items-center justify-center text-gray-500 text-sm" style="width: ' . $width . 'px; height: ' . ($height ?: $width) . 'px;">No image</div>';
+        if (! $media) {
+            return '<div class="bg-gray-200 flex items-center justify-center text-gray-500 text-sm" style="width: '.$width.'px; height: '.($height ?: $width).'px;">No image</div>';
         }
 
-        if(!$class)
-        {
+        if (! $class) {
             $class = 'justify-center items-center ';
         }
 
-        $class .= ' ' . $extraClass;
+        $class .= ' '.$extraClass;
 
-        if (!$height) {
+        $isResponsive = ! is_numeric($height) || (int) $height <= 0;
+
+        if ($isResponsive) {
             $height = 'null';
         }
 
-        if (!$type) {
+        if (! $type) {
             $type = 'null';
         }
 
@@ -125,7 +121,7 @@ trait HasImageResizer
         // URL that 404s (e.g. plain image blocks rendered without an explicit
         // width). Default to a sensible content width so the resizer always
         // produces a valid, responsive URL, mirroring explicit-width callers.
-        if (!is_numeric($width) || (int) $width <= 0) {
+        if (! is_numeric($width) || (int) $width <= 0) {
             $width = 1200;
         }
 
@@ -136,28 +132,28 @@ trait HasImageResizer
 
         $srcset = '';
         $srcsetWebp = '';
-        
+
         // Build srcset with proper validation
         if (is_int($height)) {
             $height = ceil($height * 2);
             $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
             $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-            
+
             if ($jpegUrl) {
-                $srcset = $jpegUrl . ' 2x, ';
+                $srcset = $jpegUrl.' 2x, ';
             }
             if ($webpUrl) {
-                $srcsetWebp = $webpUrl . ' 2x, ';
+                $srcsetWebp = $webpUrl.' 2x, ';
             }
         } else {
             $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
             $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-            
+
             if ($jpegUrl) {
-                $srcset = $jpegUrl . ' 2x, ';
+                $srcset = $jpegUrl.' 2x, ';
             }
             if ($webpUrl) {
-                $srcsetWebp = $webpUrl . ' 2x, ';
+                $srcsetWebp = $webpUrl.' 2x, ';
             }
         }
 
@@ -166,22 +162,22 @@ trait HasImageResizer
                 $height = ceil($height * 0.5);
                 $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
                 $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-                
+
                 if ($jpegUrl) {
-                    $srcset .= $jpegUrl . ' ' . $width . 'w, ';
+                    $srcset .= $jpegUrl.' '.$width.'w, ';
                 }
                 if ($webpUrl) {
-                    $srcsetWebp .= $webpUrl . ' ' . $width . 'w, ';
+                    $srcsetWebp .= $webpUrl.' '.$width.'w, ';
                 }
             } else {
                 $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
                 $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-                
+
                 if ($jpegUrl) {
-                    $srcset .= $jpegUrl . ' ' . $width . 'w, ';
+                    $srcset .= $jpegUrl.' '.$width.'w, ';
                 }
                 if ($webpUrl) {
-                    $srcsetWebp .= $webpUrl . ' ' . $width . 'w, ';
+                    $srcsetWebp .= $webpUrl.' '.$width.'w, ';
                 }
             }
 
@@ -193,7 +189,7 @@ trait HasImageResizer
         $srcsetWebp = rtrim($srcsetWebp, ', ');
 
         $attributeString = collect($extraAttributes)
-            ->map(fn($value, $name) => $name . '="' . $value . '"')->implode(' ');
+            ->map(fn ($value, $name) => $name.'="'.$value.'"')->implode(' ');
 
         $loadingAttributeValue = null;
 
@@ -202,18 +198,17 @@ trait HasImageResizer
         $srcWebp = $this->getFriendlyImageUrl($originalWidth, $originalHeight, $type, $media, $name, 'image/webp');
 
         // Fallback to original media URL if image resizer fails
-        if (!$src && $media) {
+        if (! $src && $media) {
             $src = $media->getUrl();
         }
 
-        if($originalHeight == 'null' || !$originalHeight)
-        {
+        if (! $isResponsive && ($originalHeight === 'null' || ! $originalHeight)) {
             $originalHeight = $originalWidth;
         }
 
         // Get LQIP color from media custom properties
         $lqipColor = '#f0f0f0'; // Default neutral color
-        
+
         if ($media && $media->hasCustomProperty('lqip_color')) {
             $customLqipColor = $media->getCustomProperty('lqip_color');
             // Validate that it's a proper hex color
@@ -224,7 +219,7 @@ trait HasImageResizer
 
         // Get BlurHash from media custom properties
         $blurHash = null;
-        
+
         if ($media && $media->hasCustomProperty('blurhash')) {
             $customBlurHash = $media->getCustomProperty('blurhash');
             // Basic validation for BlurHash format (should be a non-empty string)
@@ -242,6 +237,8 @@ trait HasImageResizer
             'src' => $src,
             'width' => $originalWidth,
             'height' => $originalHeight,
+            'isResponsive' => $isResponsive,
+            'fallbackHeight' => $isResponsive ? $originalWidth : $originalHeight,
             'class' => $class,
             'lqipColor' => $lqipColor,
             'blurHash' => $blurHash,
@@ -255,4 +252,3 @@ trait HasImageResizer
         return $this->getMediaHtml($media, $width, $height, $type, $extraAttributes, $name, $class, $extraClass);
     }
 }
-

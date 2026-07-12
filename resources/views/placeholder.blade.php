@@ -5,10 +5,10 @@ $canvasId = 'blurhash-' . $placeholderHash;
 $imgId = 'img-' . $placeholderHash;
 @endphp
 
-<div class="relative w-full h-full overflow-hidden image-resizer-container" 
-     style="--min-height: {{ $height }}px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};"
+<div class="relative w-full overflow-hidden image-resizer-container{{ $isResponsive ? '' : ' h-full' }}"
+     style="--min-height: {{ $isResponsive ? 0 : $height }}px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};"
      data-image-container>
-    @if($blurHash && $height !== 'null' && $height)
+    @if(! $isResponsive && $blurHash && $height !== 'null' && $height)
         <!-- BlurHash Background -->
         <canvas 
             id="{{ $canvasId }}"
@@ -17,29 +17,29 @@ $imgId = 'img-' . $placeholderHash;
             class="absolute inset-0 w-full h-full blurhash-canvas"
             data-blurhash="{{ $blurHash }}">
         </canvas>
-    @else
+    @elseif(! $isResponsive)
         <!-- Fallback LQIP color background -->
         <div class="absolute inset-0 w-full h-full image-resizer-blurhash-bg" 
              id="{{ $canvasId }}"></div>
     @endif
     
     <!-- Main Image - On Top -->
-    <picture class="absolute inset-0 w-full h-full">
+    <picture class="{{ $isResponsive ? 'image-resizer-picture-responsive' : 'absolute inset-0 w-full h-full' }}">
         <source srcset="{{ $srcsetWebp }}" type="image/webp">
         <source srcset="{{ $srcset }}" type="image/jpeg">
         <img
             id="{{ $imgId }}"
             src="{{ $src }}"
             srcset="{{ $srcset }}"
-            class="{{ $class }} w-full h-full object-cover"
+            class="{{ $class }} {{ $isResponsive ? 'image-resizer-img-responsive' : 'w-full h-full object-cover' }}"
             onload="document.getElementById('{{ $canvasId }}')?.remove()"
-            onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $height }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
+            onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $fallbackHeight }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
             {!! $attributeString !!}
         />
     </picture>
 </div>
 
-@if($blurHash && $height !== 'null' && $height)
+@if(! $isResponsive && $blurHash && $height !== 'null' && $height)
 <script>
 // BlurHash rendering - immediate execution
 (function() {
@@ -119,6 +119,5 @@ $imgId = 'img-' . $placeholderHash;
 })();
 </script>
 @endif
-
 
 
