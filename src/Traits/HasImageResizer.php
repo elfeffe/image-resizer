@@ -121,6 +121,14 @@ trait HasImageResizer
             $type = 'null';
         }
 
+        // A null/empty/zero width builds an invalid "/image_resizer/{id}/w//..."
+        // URL that 404s (e.g. plain image blocks rendered without an explicit
+        // width). Default to a sensible content width so the resizer always
+        // produces a valid, responsive URL, mirroring explicit-width callers.
+        if (!is_numeric($width) || (int) $width <= 0) {
+            $width = 1200;
+        }
+
         $originalWidth = $width;
         $originalHeight = $height;
 
