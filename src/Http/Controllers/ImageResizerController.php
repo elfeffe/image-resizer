@@ -11,7 +11,10 @@ use Intervention\Image\Drivers\Imagick\Driver;
 use Intervention\Image\Encoders\JpegEncoder;
 use Intervention\Image\Encoders\PngEncoder;
 use Intervention\Image\Encoders\WebpEncoder;
+use Intervention\Image\Exceptions\ImageDecoderException;
 use Intervention\Image\ImageManager;
+use Intervention\Image\Interfaces\EncodedImageInterface;
+use Intervention\Image\Interfaces\ImageInterface;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class ImageResizerController extends Controller
@@ -55,51 +58,54 @@ class ImageResizerController extends Controller
             return redirect($this->media->getFullUrl());
         }
 
-        $imageData = $this->resolveImageData();
-        if (! $imageData) {
+        $manager = ImageManager::usingDriver(Driver::class);
+
+        try {
+            $image = $this->decodeSourceImage($manager);
+        } catch (ImageDecoderException $e) {
+            abort(404, 'Image file corrupted or invalid format');
+        }
+
+        if (! $image) {
             abort(404, 'Image file does not exist');
         }
 
         try {
-            $encodedImage = $this->processImage($request, $imageData);
-
-            return Response::make($encodedImage)
-                ->header('Content-Type', $mime)
-                ->header('Pragma', 'public')
-                ->header('Cache-Control', 'public, max-age=2628000')
-                ->header('Connection', 'Keep-alive')
-                ->header('X-Image-Resizer', 'true');
+            $encodedImage = $this->processImage($request, $image);
+        } catch (ImageDecoderException $e) {
+            abort(404, 'Image file corrupted or invalid format');
         } catch (\Exception $e) {
-            $message = $e->getMessage();
-
-            if (str_contains($message, 'Unable to decode input') ||
-                str_contains($message, 'Failed to decode') ||
-                str_contains($message, 'unsupported image format') ||
-                str_contains($message, 'corrupted') ||
-                str_contains($message, 'invalid')) {
-                abort(404, 'Image file corrupted or invalid format');
-            }
-
-            \Log::error("Image resizer: processing error for media {$this->media->getKey()}: {$message}");
+            \Log::error("Image resizer: processing error for media {$this->media->getKey()}: {$e->getMessage()}");
             abort(500, 'Error processing image');
         }
+
+        return Response::make((string) $encodedImage)
+            ->header('Content-Type', $mime)
+            ->header('Pragma', 'public')
+            ->header('Cache-Control', 'public, max-age=2628000')
+            ->header('Connection', 'Keep-alive')
+            ->header('X-Image-Resizer', 'true');
     }
 
     /**
-     * Resolve image data as a file path (local) or binary string (remote).
-     * Intervention's read() handles both transparently.
+     * Decode the media original using the explicit Intervention v4 API for the
+     * known source type. Local disks use decodePath() so paths containing
+     * non-ASCII bytes are not classified as binary; remote disks/HTTP use
+     * decodeBinary() so already-fetched bytes are parsed directly.
      */
-    protected function resolveImageData(): ?string
+    protected function decodeSourceImage(ImageManager $manager): ?ImageInterface
     {
         $diskDriver = config("filesystems.disks.{$this->media->disk}.driver");
 
         if ($diskDriver === 'local') {
             $localPath = $this->media->getPath();
 
-            return file_exists($localPath) ? $localPath : null;
+            return is_file($localPath) ? $manager->decodePath($localPath) : null;
         }
 
-        return $this->readFromRemoteDisk() ?? $this->readViaHttp();
+        $binary = $this->readFromRemoteDisk() ?? $this->readViaHttp();
+
+        return filled($binary) ? $manager->decodeBinary($binary) : null;
     }
 
     /**
@@ -152,7 +158,7 @@ class ImageResizerController extends Controller
         }
     }
 
-    public function processImage(Request $request, string $imageData)
+    public function processImage(Request $request, ImageInterface $image): EncodedImageInterface
     {
         $width = (int) $request->w;
         $height = $request->h === 'null' ? null : (int) $request->h;
@@ -164,9 +170,6 @@ class ImageResizerController extends Controller
         };
 
         $file = $request->img.'/'.$request->w.'x'.$request->h.'/'.$request->type.'.'.$safeExt;
-
-        $manager = ImageManager::usingDriver(Driver::class);
-        $image = $manager->decode($imageData);
 
         // If height is null, calculate it based on aspect ratio
         if ($height === null) {

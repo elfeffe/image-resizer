@@ -33,7 +33,7 @@ $imgId = 'img-' . $placeholderHash;
             srcset="{{ $srcset }}"
             class="{{ $class }} {{ $isResponsive ? 'image-resizer-img-responsive' : 'w-full h-full object-cover' }}"
             onload="document.getElementById('{{ $canvasId }}')?.remove()"
-            onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $fallbackHeight }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
+            onerror="this.onerror=null;this.removeAttribute('srcset');this.closest('picture')?.querySelectorAll('source').forEach((source)=>source.remove());this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $fallbackHeight }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
             {!! $attributeString !!}
         />
     </picture>
