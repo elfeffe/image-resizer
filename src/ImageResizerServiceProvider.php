@@ -26,12 +26,21 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             return new ImageResizer; // Ensure ImageResizer class exists and is imported
         });
 
-        app()->config['filesystems.disks.image_resizer'] = [
-            'driver' => 'local',
-            'root' => storage_path('app/public/image_resizer'),
-            'url' => config('app.url').'/storage/image_resizer',
-            'visibility' => 'public',
-        ];
+        /*
+         * The canonical `image_resizer` disk is always registered as a local disk so
+         * cached resizes keep resolving with the historical behaviour. When a remote
+         * driver is configured it is registered under its configured name (overriding
+         * the local definition when the names match), mirroring BlockNoteField/blog.
+         */
+        app()->config['filesystems.disks.image_resizer'] = $this->imageResizerLocalDiskDefinition();
+
+        $configuredDisk = (string) config('image-resizer.storage.disk', 'image_resizer');
+
+        if ((string) config('image-resizer.storage.driver', 'local') === 's3') {
+            app()->config['filesystems.disks.'.$configuredDisk] = $this->imageResizerRemoteDiskDefinition();
+        }
+
+        $this->validateServeConfiguration();
 
         $this->commands([
             ImageResizerCommand::class,
@@ -52,6 +61,13 @@ class ImageResizerServiceProvider extends PackageServiceProvider
         $this->publishes([
             __DIR__.'/../resources/htaccess/.htaccess' => public_path('.htaccess-image-resizer'),
         ], 'image-resizer-htaccess');
+
+        if (app()->runningInConsole()) {
+            $this->publishes([
+                __DIR__.'/../resources/boost/guidelines/core.blade.php' => base_path('.ai/guidelines/image-resizer/core.blade.php'),
+                __DIR__.'/../resources/boost/skills/image-resizer-development/SKILL.md' => base_path('.ai/skills/image-resizer-development/SKILL.md'),
+            ], 'image-resizer-boost');
+        }
 
         // Register MediaObserver to automatically calculate LQIP colors
         Media::observe(MediaObserver::class);
@@ -86,6 +102,50 @@ class ImageResizerServiceProvider extends PackageServiceProvider
         Blade::directive('imageResizerScripts', function () {
             return "<?php echo \Elfeffe\ImageResizer\ImageResizerServiceProvider::scripts(); ?>";
         });
+    }
+
+    protected function imageResizerLocalDiskDefinition(): array
+    {
+        return [
+            'driver' => 'local',
+            'root' => storage_path('app/public/image_resizer'),
+            'url' => config('app.url').'/storage/image_resizer',
+            'visibility' => 'public',
+        ];
+    }
+
+    protected function imageResizerRemoteDiskDefinition(): array
+    {
+        return [
+            'driver' => 's3',
+            'key' => config('image-resizer.storage.s3.key'),
+            'secret' => config('image-resizer.storage.s3.secret'),
+            'region' => config('image-resizer.storage.s3.region'),
+            'bucket' => config('image-resizer.storage.s3.bucket'),
+            'endpoint' => config('image-resizer.storage.s3.endpoint'),
+            'use_path_style_endpoint' => (bool) config('image-resizer.storage.s3.use_path_style_endpoint', false),
+            'url' => config('image-resizer.storage.url'),
+            'root' => (string) config('image-resizer.storage.root', 'image_resizer'),
+            'visibility' => (string) config('image-resizer.storage.visibility', 'public'),
+            'throw' => true,
+        ];
+    }
+
+    protected function validateServeConfiguration(): void
+    {
+        $serveUrl = (string) config('image-resizer.serve.url', '');
+
+        if ($serveUrl === '') {
+            return;
+        }
+
+        $mode = (string) config('image-resizer.serve.mode', 'cdn_origin');
+
+        if (! in_array($mode, ['cdn_origin', 'redirect'], true)) {
+            throw new \RuntimeException(
+                "image-resizer: invalid serve.mode '{$mode}'. Expected 'cdn_origin' or 'redirect'."
+            );
+        }
     }
 
     public static function styles(): string
