@@ -48,11 +48,16 @@ Include the package directives once in the layout:
 @imageResizerScripts
 ```
 
-## Route and cache behavior
+## Route, storage, and serving modes
 
-- The package serves images through `/image_resizer/{id}/w/{w}/h/{h}/{type}/{path}.{ext}`
-- Generated files are cached on the `image_resizer` disk
-- `image-resizer:install-htaccess` can configure direct Apache serving for cached files
+- The package serves images through `/image_resizer/{id}/w/{w}/h/{h}/{type}/{path}.{ext}`.
+- Storage is configured in `config/image-resizer.php` (env prefix `IMAGERESIZER_*`):
+  - `storage.driver=local` (default): cached files at `{id}/{w}x{h}/{type}.{ext}` on the local `image_resizer` disk; web-server fast paths apply (`image-resizer:install-htaccess`).
+  - `storage.driver=s3`: resizes live in the bucket under `storage.root` (default `image_resizer`); no local writes.
+- `serve.mode=cdn_origin` + `serve.url`: URLs point at the CDN, which origin-pulls the app (GET-first on the bucket, generate on miss, stream; never redirects).
+- `serve.mode=redirect` + `serve.url`: app route 301s to the public object URL (requires public-read bucket).
+- `type=original` always redirects to the original media URL.
+- Objects are stored with `Content-Type` and `Cache-Control: public, max-age=2628000`; storage failures log + 500 (never silent).
 
 ## Best practices
 
