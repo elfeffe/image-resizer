@@ -165,6 +165,61 @@ curl -I https://yoursite.com/image_resizer/123/w/800/h/600/resize/test.jpg
 # Or standard Apache headers (direct file serving)
 ```
 
+## Storage & serving
+
+Resized images are stored on the `image_resizer` disk. By default that disk is
+local (`storage/app/public/image_resizer`) and URLs are app-relative — the
+historical behaviour, including the Apache/Nginx direct-serve fast paths
+(`image-resizer:install-htaccess`).
+
+For object storage (Backblaze B2, Cloudflare R2, AWS S3) set
+`IMAGERESIZER_STORAGE_DRIVER=s3`. Resized images then live in the bucket under
+the configured `root` prefix and are never written to the app disk.
+
+### Configuration
+
+| Key | Env | Default | Purpose |
+|---|---|---|---|
+| `storage.disk` | `IMAGERESIZER_STORAGE_DISK` | `image_resizer` | Disk name registered for resizes |
+| `storage.driver` | `IMAGERESIZER_STORAGE_DRIVER` | `local` | `local` or `s3` |
+| `storage.root` | `IMAGERESIZER_STORAGE_ROOT` | `image_resizer` | Bucket key prefix (s3 only) |
+| `storage.url` | `IMAGERESIZER_STORAGE_URL` | — | Public bucket base URL (s3 disk) |
+| `storage.visibility` | `IMAGERESIZER_STORAGE_VISIBILITY` | `public` | Object visibility |
+| `storage.s3.key` | `IMAGERESIZER_STORAGE_KEY` | — | |
+| `storage.s3.secret` | `IMAGERESIZER_STORAGE_SECRET` | — | |
+| `storage.s3.region` | `IMAGERESIZER_STORAGE_REGION` | — | |
+| `storage.s3.bucket` | `IMAGERESIZER_STORAGE_BUCKET` | — | |
+| `storage.s3.endpoint` | `IMAGERESIZER_STORAGE_ENDPOINT` | — | |
+| `storage.s3.use_path_style_endpoint` | `IMAGERESIZER_STORAGE_PATH_STYLE` | `false` | |
+| `serve.url` | `IMAGERESIZER_SERVE_URL` | — | Public base for resize URLs (CDN/CNAME/bucket) |
+| `serve.mode` | `IMAGERESIZER_SERVE_MODE` | `cdn_origin` | `cdn_origin` or `redirect` |
+
+### Serving modes
+
+- **`local` (default):** cached files at `{id}/{w}x{h}/{type}.{ext}` served by
+  the web server fast path or generated on demand. Unchanged historical behaviour.
+- **`s3` + `cdn_origin`:** point a CDN pull zone (e.g. Bunny) at the app and set
+  `serve.url` to the CDN URL. Emitted URLs point at the CDN; on a cache miss the
+  CDN pulls the app, which GETs the object from the bucket, or generates it,
+  stores it (with `Content-Type` and `Cache-Control: public, max-age=2628000`),
+  and streams it. This mode never redirects (loop-safe). Works with a private bucket.
+- **`s3` + `redirect`:** set `serve.url` to the public bucket/CDN URL. Emitted
+  URLs stay on the app route; the app 301s to the bucket object once it exists
+  (generating + storing it on first request). Requires `serve.url` and a
+  public-read bucket.
+
+In every mode `type=original` redirects to the original media URL.
+
+### Notes
+
+- s3 mode requires Laravel's S3 driver (`league/flysystem-aws-s3-v3`) in the
+  host project.
+- Object storage keys are URL-shaped (`{id}/w/{w}/h/{h}/{type}/{file}` under the
+  disk root) so `serve.url` + URL path resolves to the object.
+- Storage failures are never silent: the endpoint returns 500 and logs the error.
+- When a CDN sits in front of the app, keep edge 404 caching disabled so missing
+  media does not poison the cache.
+
 ## Usage
 
 ### Basic Usage
