@@ -88,12 +88,17 @@ class ImageResizerController extends Controller
      * cdn_origin: GET-first (no exists() check), generate on miss, stream bytes —
      *             the CDN origin-pulls this endpoint, so it never redirects.
      * redirect:   301 to the public serve URL once the object exists.
+     *
+     * Storage is consulted before the database, mirroring the local driver's
+     * cache-first flow: an already-generated resize is served without a query,
+     * and keeps serving after its media row is deleted or recycled. The media
+     * is only resolved when the object is missing and must be generated.
      */
     protected function showFromObjectStorage(Request $request)
     {
-        $this->media = Media::findOrFail($request->img);
-
         if ($request->type === 'original') {
+            $this->media = Media::findOrFail($request->img);
+
             return redirect($this->media->getFullUrl())->header('X-Image-Resizer', 'redirect');
         }
 
@@ -114,10 +119,11 @@ class ImageResizerController extends Controller
             return redirect($targetUrl, 301)->header('X-Image-Resizer', 'redirect');
         }
 
-        $contents = $this->readObject($disk, $key);
+        $contents = $isRedirectMode ? null : $this->readObject($disk, $key);
         $generated = false;
 
         if ($contents === null) {
+            $this->media = Media::findOrFail($request->img);
             $contents = (string) $this->generateEncodedImage($request);
             $this->writeObject($disk, $key, $contents, $mime);
             $generated = true;
