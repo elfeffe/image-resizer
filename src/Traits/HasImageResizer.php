@@ -54,13 +54,21 @@ trait HasImageResizer
             $mimeConvert = $media['mime_type'];
         }
 
-        // Use relative URLs to avoid mixed content issues
-        return match ($mimeConvert) {
-            'image/jpg', 'image/jpeg' => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.jpg',
-            'image/png' => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.png',
-            'image/webp' => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.webp',
-            default => '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.jpg',
+        $ext = match ($mimeConvert) {
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            default => 'jpg',
         };
+
+        $relative = '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.'.$ext;
+
+        $serveUrl = (string) config('image-resizer.serve.url', '');
+
+        if ($serveUrl !== '' && (string) config('image-resizer.serve.mode', 'cdn_origin') === 'cdn_origin') {
+            return rtrim($serveUrl, '/').$relative;
+        }
+
+        return $relative;
     }
 
     public function getMediaUrl($media, $width, $height = null, $type = 'resize', $name = null, $mimeConvert = null): ?string
