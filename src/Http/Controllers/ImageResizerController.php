@@ -293,11 +293,20 @@ class ImageResizerController extends Controller
         $width = (int) $request->w;
         $height = $request->h === 'null' ? null : (int) $request->h;
 
-        if ($height === null) {
-            $originalWidth = $image->width();
-            $originalHeight = $image->height();
+        $originalWidth = $image->width();
+        $originalHeight = $image->height();
+
+        // Degenerate dimensions (0, negative, or a non-numeric segment such as a
+        // stale "h/None" URL) are not usable resize targets. Rather than fail the
+        // request, fall back to the image's real aspect ratio so a proportionally
+        // correct image is always produced.
+        if ($width <= 0) {
+            $width = $originalWidth;
+        }
+
+        if ($height === null || $height <= 0) {
             $aspectRatio = $originalHeight / $originalWidth;
-            $height = (int) round($width * $aspectRatio);
+            $height = max(1, (int) round($width * $aspectRatio));
         }
 
         if ($request->type === 'resize') {
