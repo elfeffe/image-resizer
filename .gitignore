@@ -13,3 +13,6 @@ testbench.yaml
 vendor
 node_modules
 /image-resizer
+
+# Local-only agent scratch (SDD workspaces)
+/.superpowers/
