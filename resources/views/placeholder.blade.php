@@ -6,7 +6,7 @@ $imgId = 'img-' . $placeholderHash;
 @endphp
 
 <div class="relative w-full overflow-hidden image-resizer-container{{ $isResponsive ? '' : ' h-full' }}"
-     style="--min-height: {{ $isResponsive ? 0 : $height }}px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};"
+     style="--min-height: {{ $isResponsive ? 0 : $height }}px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};{{ ! $isResponsive ? ' aspect-ratio: '.$width.' / '.$height.';' : '' }}"
      data-image-container>
     @if(! $isResponsive && $blurHash && $height !== 'null' && $height)
         <!-- BlurHash Background -->
