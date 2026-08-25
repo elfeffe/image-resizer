@@ -5,10 +5,10 @@ $canvasId = 'blurhash-' . $placeholderHash;
 $imgId = 'img-' . $placeholderHash;
 @endphp
 
-<div class="relative w-full overflow-hidden image-resizer-container{{ $isResponsive ? '' : ' h-full' }}"
-     style="--min-height: {{ $isResponsive ? 0 : $height }}px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};{{ ! $isResponsive ? ' aspect-ratio: '.$width.' / '.$height.';' : '' }}"
+<div class="relative w-full overflow-hidden image-resizer-container{{ $isBoxed ? ' h-full' : '' }}"
+     style="--min-height: {{ $isBoxed ? $height : 0 }}px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};{{ $isBoxed ? ' aspect-ratio: '.$width.' / '.$height.';' : '' }}"
      data-image-container>
-    @if(! $isResponsive && $blurHash && $height !== 'null' && $height)
+    @if($isBoxed && $blurHash && $height !== 'null' && $height)
         <!-- BlurHash Background -->
         <canvas 
             id="{{ $canvasId }}"
@@ -17,21 +17,21 @@ $imgId = 'img-' . $placeholderHash;
             class="absolute inset-0 w-full h-full blurhash-canvas"
             data-blurhash="{{ $blurHash }}">
         </canvas>
-    @elseif(! $isResponsive)
+    @elseif($isBoxed)
         <!-- Fallback LQIP color background -->
         <div class="absolute inset-0 w-full h-full image-resizer-blurhash-bg" 
              id="{{ $canvasId }}"></div>
     @endif
     
     <!-- Main Image - On Top -->
-    <picture class="{{ $isResponsive ? 'image-resizer-picture-responsive' : 'absolute inset-0 w-full h-full' }}">
+    <picture class="{{ $isBoxed ? 'absolute inset-0 w-full h-full' : 'image-resizer-picture-responsive' }}">
         <source srcset="{{ $srcsetWebp }}" type="image/webp">
         <source srcset="{{ $srcset }}" type="image/jpeg">
         <img
             id="{{ $imgId }}"
             src="{{ $src }}"
             srcset="{{ $srcset }}"
-            class="{{ $class }} {{ $isResponsive ? 'image-resizer-img-responsive' : 'w-full h-full object-cover' }}"
+            class="{{ $class }} {{ $isBoxed ? 'w-full h-full object-cover' : 'image-resizer-img-responsive' }}"
             onload="document.getElementById('{{ $canvasId }}')?.remove()"
             onerror="this.onerror=null;this.removeAttribute('srcset');this.closest('picture')?.querySelectorAll('source').forEach((source)=>source.remove());this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $fallbackHeight }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
             {!! $attributeString !!}
@@ -39,7 +39,7 @@ $imgId = 'img-' . $placeholderHash;
     </picture>
 </div>
 
-@if(! $isResponsive && $blurHash && $height !== 'null' && $height)
+@if($isBoxed && $blurHash && $height !== 'null' && $height)
 <script>
 // BlurHash rendering - immediate execution
 (function() {

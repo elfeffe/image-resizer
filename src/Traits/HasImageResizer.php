@@ -125,6 +125,11 @@ trait HasImageResizer
             $type = 'null';
         }
 
+        // Only the 'fit' type crops the source to the requested box (cover).
+        // 'resize' scales down preserving the source ratio, so the rendered
+        // file does not match the requested box and must size itself.
+        $isBoxed = ! $isResponsive && $type === 'fit';
+
         // A null/empty/zero width builds an invalid "/image_resizer/{id}/w//..."
         // URL that 404s (e.g. plain image blocks rendered without an explicit
         // width). Default to a sensible content width so the resizer always
@@ -246,7 +251,8 @@ trait HasImageResizer
             'width' => $originalWidth,
             'height' => $originalHeight,
             'isResponsive' => $isResponsive,
-            'fallbackHeight' => $isResponsive ? $originalWidth : $originalHeight,
+            'isBoxed' => $isBoxed,
+            'fallbackHeight' => $isBoxed ? $originalHeight : $originalWidth,
             'class' => $class,
             'lqipColor' => $lqipColor,
             'blurHash' => $blurHash,
