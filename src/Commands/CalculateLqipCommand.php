@@ -1,11 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Elfeffe\ImageResizer\Commands;
 
-use Illuminate\Console\Command;
-use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Elfeffe\ImageResizer\Jobs\CalculateLqipJob;
 use Elfeffe\ImageResizer\Traits\HasImageResizer;
+use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class CalculateLqipCommand extends Command
 {
@@ -30,26 +33,29 @@ class CalculateLqipCommand extends Command
      */
     public function handle(): int
     {
-        $force = $this->option('force');
+        $force = (bool) $this->option('force');
         $limit = (int) $this->option('limit');
 
         $this->info('Starting LQIP data calculation (colors and BlurHash)...');
 
-        // Query media items that belong to models using HasImageResizer trait
-        $query = Media::whereHasMorph('model', '*', function ($query, $type) {
-            // Check if the model class uses HasImageResizer trait
+        $query = Media::query()->whereHasMorph('model', '*', function (Builder $query, string $type): void {
             $traits = class_uses_recursive($type);
-            return in_array(HasImageResizer::class, $traits);
+
+            if (! in_array(HasImageResizer::class, $traits, true)) {
+                $query->whereKey(-1);
+            }
         });
 
         // If not forcing, only process media missing LQIP color or BlurHash.
         // A missing JSON key resolves to NULL via json_extract, so whereNull
         // matches both absent keys and explicit nulls.
-        if (!$force) {
-            $query->where(function ($query) {
+        if (! $force) {
+            $query->where(function (Builder $query): void {
                 $query->whereNull('custom_properties')
-                      ->orWhereNull('custom_properties->lqip_color')
-                      ->orWhereNull('custom_properties->blurhash');
+                    ->orWhereNull('custom_properties->lqip_color')
+                    ->orWhereNull('custom_properties->blurhash')
+                    ->orWhereNull('custom_properties->image_resizer->width')
+                    ->orWhereNull('custom_properties->image_resizer->height');
             });
         }
 
@@ -57,6 +63,7 @@ class CalculateLqipCommand extends Command
 
         if ($mediaItems->isEmpty()) {
             $this->info('No media items found to process.');
+
             return self::SUCCESS;
         }
 
@@ -70,23 +77,27 @@ class CalculateLqipCommand extends Command
 
         foreach ($mediaItems as $media) {
             // Skip non-image files
-            if (!str_starts_with($media->mime_type ?? '', 'image/')) {
+            if (! str_starts_with($media->mime_type ?? '', 'image/')
+                || in_array($media->mime_type, ['image/svg+xml', 'image/gif'], true)) {
                 $skipped++;
                 $progressBar->advance();
                 continue;
             }
 
             // Skip if both LQIP color and BlurHash already exist and not forcing
-            if (!$force && 
-                $media->hasCustomProperty('lqip_color') && 
-                $media->hasCustomProperty('blurhash')) {
+            if (! $force
+                && $media->hasCustomProperty('lqip_color')
+                && $media->hasCustomProperty('blurhash')
+                && $media->hasCustomProperty('image_resizer.width')
+                && $media->hasCustomProperty('image_resizer.height')) {
                 $skipped++;
                 $progressBar->advance();
                 continue;
             }
 
             // Dispatch the job
-            CalculateLqipJob::dispatch($media->id)->onQueue('default');
+            CalculateLqipJob::dispatch($media->id, $force)
+                ->onQueue((string) config('image-resizer.queue'));
             $processed++;
 
             $progressBar->advance();
@@ -106,4 +117,4 @@ class CalculateLqipCommand extends Command
 
         return self::SUCCESS;
     }
-} 
+}

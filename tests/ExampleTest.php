@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Elfeffe\ImageResizer\Tests;
 
 use PHPUnit\Framework\Attributes\Test;
@@ -35,11 +37,11 @@ class ExampleTest extends TestCase
     {
         return [
             'attributeString' => 'alt="Example"',
-            'loadingAttributeValue' => null,
+            'sizes' => '100vw',
             'srcset' => '/example.jpg 1200w',
             'srcsetWebp' => '/example.webp 1200w',
-            'srcWebp' => '/example.webp',
             'src' => '/example.jpg',
+            'fallbackMimeType' => 'image/jpeg',
             'width' => 1200,
             'height' => $height,
             'fallbackHeight' => 1200,

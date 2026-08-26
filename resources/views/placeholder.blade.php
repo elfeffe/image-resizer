@@ -25,12 +25,18 @@ $imgId = 'img-' . $placeholderHash;
     
     <!-- Main Image - On Top -->
     <picture class="{{ $isBoxed ? 'absolute inset-0 w-full h-full' : 'image-resizer-picture-responsive' }}">
-        <source srcset="{{ $srcsetWebp }}" type="image/webp">
-        <source srcset="{{ $srcset }}" type="image/jpeg">
+        @if($srcsetWebp)
+            <source srcset="{{ $srcsetWebp }}" sizes="{{ $sizes }}" type="image/webp">
+        @endif
+        @if($srcset)
+            <source srcset="{{ $srcset }}" sizes="{{ $sizes }}" type="{{ $fallbackMimeType }}">
+        @endif
         <img
             id="{{ $imgId }}"
             src="{{ $src }}"
-            srcset="{{ $srcset }}"
+            @if($srcset)
+                srcset="{{ $srcset }}"
+            @endif
             class="{{ $class }} {{ $isBoxed ? 'w-full h-full object-cover' : 'image-resizer-img-responsive' }}"
             onload="document.getElementById('{{ $canvasId }}')?.remove()"
             onerror="this.onerror=null;this.removeAttribute('srcset');this.closest('picture')?.querySelectorAll('source').forEach((source)=>source.remove());this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $fallbackHeight }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
@@ -119,5 +125,3 @@ $imgId = 'img-' . $placeholderHash;
 })();
 </script>
 @endif
-
-

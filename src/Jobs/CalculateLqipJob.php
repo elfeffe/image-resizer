@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Elfeffe\ImageResizer\Jobs;
 
 use Bepsvpt\Blurhash\Facades\BlurHash;
@@ -9,7 +11,11 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Storage;
+use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\ImageManager;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
@@ -17,36 +23,47 @@ class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
-     * The number of times the job may be attempted.
-     *
-     * @var int
-     */
-    public $tries = 3;
-
-    /**
      * The number of seconds the job can run before timing out.
      *
      * @var int
      */
-    public $timeout = 60;
+    public int $timeout = 60;
 
     /**
      * The number of seconds the unique lock should be maintained.
      *
      * @var int
      */
-    public $uniqueFor = 3600;
+    public int $uniqueFor = 3600;
 
     /**
      * Create a new job instance.
      */
     public function __construct(
-        protected int $mediaId
+        protected int $mediaId,
+        protected bool $force = false,
     ) {}
 
     public function uniqueId(): string
     {
-        return (string) $this->mediaId;
+        return $this->mediaId.($this->force ? ':force' : '');
+    }
+
+    public function tries(): int
+    {
+        return $this->force ? 15 : 3;
+    }
+
+    /**
+     * @return array<int, WithoutOverlapping>
+     */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping("image-resizer:{$this->mediaId}"))
+                ->releaseAfter(5)
+                ->expireAfter($this->timeout),
+        ];
     }
 
     /**
@@ -54,61 +71,82 @@ class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
      */
     public function handle(): void
     {
-        try {
-            // Load the media item
-            $media = Media::find($this->mediaId);
+        $media = Media::find($this->mediaId);
 
-            if (! $media) {
-                // Media was likely deleted between job dispatch and execution
-                // This is normal behavior, just exit silently
-                return;
-            }
-
-            // Skip if both LQIP color and BlurHash already exist
-            if ($media->hasCustomProperty('lqip_color') && $media->hasCustomProperty('blurhash')) {
-                return;
-            }
-
-            // Get the media file path
-            $imagePath = $media->getPath();
-
-            if (! file_exists($imagePath)) {
-                throw new Exception("Media file not found: {$imagePath}");
-            }
-
-            // Only process image files
-            if (! $this->isImageFile($media->mime_type)) {
-                return;
-            }
-
-            // Calculate dominant color if not exists
-            if (! $media->hasCustomProperty('lqip_color')) {
-                $dominantColor = $this->calculateDominantColor($imagePath);
-                if ($dominantColor) {
-                    $media->setCustomProperty('lqip_color', $dominantColor);
-                }
-            }
-
-            // Generate BlurHash if not exists
-            if (! $media->hasCustomProperty('blurhash')) {
-                $blurHash = $this->generateBlurHash($imagePath);
-                if ($blurHash) {
-                    $media->setCustomProperty('blurhash', $blurHash);
-                }
-            }
-
-            // Save the media with updated custom properties
-            $media->save();
-
-        } catch (Exception $e) {
-            // Silently ignore errors - LQIP is non-critical functionality
+        if (! $media || ! $this->isImageFile($media->mime_type)) {
+            return;
         }
+
+        if (! $this->force
+            && $media->hasCustomProperty('lqip_color')
+            && $media->hasCustomProperty('blurhash')
+            && $media->hasCustomProperty('image_resizer.width')
+            && $media->hasCustomProperty('image_resizer.height')) {
+            return;
+        }
+
+        [$imageSource, $binary] = $this->getImageSource($media);
+
+        if (! $binary && ! file_exists($imageSource)) {
+            throw new Exception("Media file not found: {$imageSource}");
+        }
+
+        if ($this->force
+            || ! $media->hasCustomProperty('image_resizer.width')
+            || ! $media->hasCustomProperty('image_resizer.height')) {
+            $manager = ImageManager::usingDriver(Driver::class);
+            $image = $binary
+                ? $manager->decodeBinary($imageSource)
+                : $manager->decodePath($imageSource);
+
+            $media
+                ->setCustomProperty('image_resizer.width', $image->width())
+                ->setCustomProperty('image_resizer.height', $image->height());
+
+            unset($image);
+        }
+
+        if ($this->force || ! $media->hasCustomProperty('lqip_color')) {
+            $dominantColor = $this->calculateDominantColor($imageSource, $binary);
+
+            if ($dominantColor) {
+                $media->setCustomProperty('lqip_color', $dominantColor);
+            }
+        }
+
+        if ($this->force || ! $media->hasCustomProperty('blurhash')) {
+            $blurHash = $this->generateBlurHash($imageSource, $binary);
+
+            if ($blurHash) {
+                $media->setCustomProperty('blurhash', $blurHash);
+            }
+        }
+
+        $media->save();
+    }
+
+    /**
+     * @return array{0: string, 1: bool}
+     */
+    private function getImageSource(Media $media): array
+    {
+        if (config("filesystems.disks.{$media->disk}.driver") === 'local') {
+            return [$media->getPath(), false];
+        }
+
+        $contents = Storage::disk($media->disk)->get($media->getPathRelativeToRoot());
+
+        if (! is_string($contents) || $contents === '') {
+            throw new Exception("Media file is empty: {$media->getPathRelativeToRoot()}");
+        }
+
+        return [$contents, true];
     }
 
     /**
      * Generate BlurHash for the given image
      */
-    protected function generateBlurHash(string $imagePath): ?string
+    protected function generateBlurHash(string $imageSource, bool $binary = false): ?string
     {
         try {
             // Generate BlurHash with optimal settings for proper blur representation
@@ -118,12 +156,15 @@ class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
                 ->setComponentX(6)  // Horizontal detail
                 ->setComponentY(4)  // Vertical detail
                 ->setMaxSize(128)   // Resize image for processing (balance speed vs quality)
-                ->encode($imagePath);
+                ->encode($binary
+                    ? 'data://application/octet-stream;base64,'.base64_encode($imageSource)
+                    : $imageSource);
 
             return $blurHash;
 
         } catch (Exception $e) {
-            // Silently ignore - BlurHash is non-critical
+            report($e);
+
             return null;
         }
     }
@@ -144,29 +185,26 @@ class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
     /**
      * Calculate the dominant color of an image
      */
-    protected function calculateDominantColor(string $imagePath): ?string
+    protected function calculateDominantColor(string $imageSource, bool $binary = false): ?string
     {
         try {
-            // Get image info first
-            $imageInfo = getimagesize($imagePath);
+            $imageInfo = $binary
+                ? getimagesizefromstring($imageSource)
+                : getimagesize($imageSource);
+
             if (! $imageInfo) {
                 return '#f0f0f0';
             }
 
-            // Create image resource from file
-            $image = null;
-            switch ($imageInfo['mime']) {
-                case 'image/jpeg':
-                    $image = imagecreatefromjpeg($imagePath);
-                    break;
-                case 'image/png':
-                    $image = imagecreatefrompng($imagePath);
-                    break;
-                case 'image/webp':
-                    $image = imagecreatefromwebp($imagePath);
-                    break;
-                default:
-                    return '#f0f0f0';
+            if ($binary) {
+                $image = imagecreatefromstring($imageSource);
+            } else {
+                $image = match ($imageInfo['mime']) {
+                    'image/jpeg' => imagecreatefromjpeg($imageSource),
+                    'image/png' => imagecreatefrompng($imageSource),
+                    'image/webp' => imagecreatefromwebp($imageSource),
+                    default => null,
+                };
             }
 
             if (! $image) {
@@ -218,16 +256,9 @@ class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
             return $hex;
 
         } catch (Exception $e) {
-            // Fallback: return a neutral color
+            report($e);
+
             return '#f0f0f0';
         }
-    }
-
-    /**
-     * Handle job failure
-     */
-    public function failed(\Throwable $exception): void
-    {
-        // Silently ignore - LQIP is non-critical functionality
     }
 }

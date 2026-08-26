@@ -1,6 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 return [
+
+    /*
+     * Queue used for image metadata and placeholder generation jobs.
+     */
+    'queue' => env('IMAGERESIZER_QUEUE', 'default'),
 
     'storage' => [
         /*

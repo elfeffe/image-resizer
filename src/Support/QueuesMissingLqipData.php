@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Elfeffe\ImageResizer\Support;
 
 use Elfeffe\ImageResizer\Jobs\CalculateLqipJob;
@@ -22,7 +24,9 @@ class QueuesMissingLqipData
             ->where(function (Builder $query): void {
                 $query->whereNull('custom_properties')
                     ->orWhereNull('custom_properties->lqip_color')
-                    ->orWhereNull('custom_properties->blurhash');
+                    ->orWhereNull('custom_properties->blurhash')
+                    ->orWhereNull('custom_properties->image_resizer->width')
+                    ->orWhereNull('custom_properties->image_resizer->height');
             })
             ->pluck('id')
             ->each(fn (int|string $mediaId) => $this->dispatch((int) $mediaId));
@@ -44,7 +48,7 @@ class QueuesMissingLqipData
     private function dispatch(int $mediaId, bool $delay = false): void
     {
         $dispatch = CalculateLqipJob::dispatch($mediaId)
-            ->onQueue('default')
+            ->onQueue((string) config('image-resizer.queue'))
             ->afterCommit();
 
         if ($delay) {
@@ -61,6 +65,8 @@ class QueuesMissingLqipData
     private function isMissingLqipData(Media $media): bool
     {
         return ! $media->hasCustomProperty('lqip_color')
-            || ! $media->hasCustomProperty('blurhash');
+            || ! $media->hasCustomProperty('blurhash')
+            || ! $media->hasCustomProperty('image_resizer.width')
+            || ! $media->hasCustomProperty('image_resizer.height');
     }
 }

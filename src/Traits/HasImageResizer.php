@@ -1,8 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Elfeffe\ImageResizer\Traits;
 
 use Illuminate\Support\Str;
+use Illuminate\View\ComponentAttributeBag;
 
 trait HasImageResizer
 {
@@ -119,6 +122,8 @@ trait HasImageResizer
 
         if ($isResponsive) {
             $height = 'null';
+        } else {
+            $height = (int) $height;
         }
 
         if (! $type) {
@@ -138,86 +143,42 @@ trait HasImageResizer
             $width = 1200;
         }
 
-        $originalWidth = $width;
+        $originalWidth = (int) $width;
         $originalHeight = $height;
-
-        $width = ceil($width * 2);
-
-        $srcset = '';
-        $srcsetWebp = '';
-
-        // Build srcset with proper validation
-        if (is_int($height)) {
-            $height = ceil($height * 2);
-            $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
-            $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-
-            if ($jpegUrl) {
-                $srcset = $jpegUrl.' 2x, ';
-            }
-            if ($webpUrl) {
-                $srcsetWebp = $webpUrl.' 2x, ';
-            }
-        } else {
-            $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
-            $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-
-            if ($jpegUrl) {
-                $srcset = $jpegUrl.' 2x, ';
-            }
-            if ($webpUrl) {
-                $srcsetWebp = $webpUrl.' 2x, ';
-            }
-        }
-
-        while ($width > 150) {
-            if (is_int($height)) {
-                $height = ceil($height * 0.5);
-                $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
-                $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-
-                if ($jpegUrl) {
-                    $srcset .= $jpegUrl.' '.$width.'w, ';
-                }
-                if ($webpUrl) {
-                    $srcsetWebp .= $webpUrl.' '.$width.'w, ';
-                }
-            } else {
-                $jpegUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name);
-                $webpUrl = $this->getFriendlyImageUrl($width, $height, $type, $media, $name, 'image/webp');
-
-                if ($jpegUrl) {
-                    $srcset .= $jpegUrl.' '.$width.'w, ';
-                }
-                if ($webpUrl) {
-                    $srcsetWebp .= $webpUrl.' '.$width.'w, ';
-                }
-            }
-
-            $width = ceil($width * 0.5);
-        }
-
-        // Clean up trailing commas and spaces
-        $srcset = rtrim($srcset, ', ');
-        $srcsetWebp = rtrim($srcsetWebp, ', ');
-
-        $attributeString = collect($extraAttributes)
-            ->map(fn ($value, $name) => $name.'="'.$value.'"')->implode(' ');
-
-        $loadingAttributeValue = null;
+        [$srcset, $srcsetWebp] = $this->getImageResizerResponsiveSrcsets(
+            $media,
+            $originalWidth,
+            $originalHeight,
+            $type,
+            $name,
+        );
 
         // Use full-size image for immediate loading instead of 32px placeholder
         $src = $this->getFriendlyImageUrl($originalWidth, $originalHeight, $type, $media, $name);
-        $srcWebp = $this->getFriendlyImageUrl($originalWidth, $originalHeight, $type, $media, $name, 'image/webp');
-
-        // Fallback to original media URL if image resizer fails
-        if (! $src && $media) {
+        if (! $src) {
             $src = $media->getUrl();
         }
 
         if (! $isResponsive && ($originalHeight === 'null' || ! $originalHeight)) {
             $originalHeight = $originalWidth;
         }
+
+        [$renderedWidth, $renderedHeight] = $this->getImageResizerRenderedDimensions(
+            $media,
+            $originalWidth,
+            $originalHeight,
+            $type,
+        );
+
+        $attributes = array_filter([
+            'loading' => 'lazy',
+            'decoding' => 'async',
+            'sizes' => '100vw',
+            'width' => $renderedWidth,
+            'height' => $renderedHeight,
+        ], fn (mixed $value): bool => $value !== null);
+
+        $attributeString = (string) new ComponentAttributeBag(array_merge($attributes, $extraAttributes));
 
         // Get LQIP color from media custom properties
         $lqipColor = '#f0f0f0'; // Default neutral color
@@ -243,20 +204,83 @@ trait HasImageResizer
 
         return view('resizer::placeholder', [
             'attributeString' => $attributeString,
-            'loadingAttributeValue' => $loadingAttributeValue,
+            'sizes' => $extraAttributes['sizes'] ?? '100vw',
             'srcset' => $srcset,
             'srcsetWebp' => $srcsetWebp,
-            'srcWebp' => $srcWebp,
             'src' => $src,
+            'fallbackMimeType' => $this->normalizeMimeType($media->mime_type) ?? 'image/jpeg',
             'width' => $originalWidth,
             'height' => $originalHeight,
             'isResponsive' => $isResponsive,
             'isBoxed' => $isBoxed,
-            'fallbackHeight' => $isBoxed ? $originalHeight : $originalWidth,
+            'fallbackHeight' => $renderedHeight ?? ($isBoxed ? $originalHeight : $originalWidth),
             'class' => $class,
             'lqipColor' => $lqipColor,
             'blurHash' => $blurHash,
         ]);
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function getImageResizerResponsiveSrcsets($media, int $width, int|string $height, string $type, ?string $name): array
+    {
+        $sourceWidth = (int) $media->getCustomProperty('image_resizer.width', 0);
+        $sourceHeight = (int) $media->getCustomProperty('image_resizer.height', 0);
+
+        if ($sourceWidth <= 0 || $sourceHeight <= 0) {
+            return ['', ''];
+        }
+
+        $candidateWidth = min($width * 2, $sourceWidth);
+        $jpeg = [];
+        $webp = [];
+
+        while ($candidateWidth > 150) {
+            $candidateHeight = is_numeric($height)
+                ? max(1, (int) ceil($candidateWidth * (int) $height / $width))
+                : 'null';
+
+            [$renderedWidth] = $this->getImageResizerRenderedDimensions($media, $candidateWidth, $candidateHeight, $type);
+            $descriptorWidth = $renderedWidth ?? $candidateWidth;
+            $jpeg[$descriptorWidth] = $this->getFriendlyImageUrl($candidateWidth, $candidateHeight, $type, $media, $name).' '.$descriptorWidth.'w';
+            $webp[$descriptorWidth] = $this->getFriendlyImageUrl($candidateWidth, $candidateHeight, $type, $media, $name, 'image/webp').' '.$descriptorWidth.'w';
+            $candidateWidth = (int) ceil($candidateWidth / 2);
+        }
+
+        return [implode(', ', $jpeg), implode(', ', $webp)];
+    }
+
+    /**
+     * @return array{0: ?int, 1: ?int}
+     */
+    private function getImageResizerRenderedDimensions($media, int $width, int|string $height, string $type): array
+    {
+        if ($type === 'fit' && is_numeric($height)) {
+            return [$width, (int) $height];
+        }
+
+        $sourceWidth = (int) $media->getCustomProperty('image_resizer.width', 0);
+        $sourceHeight = (int) $media->getCustomProperty('image_resizer.height', 0);
+
+        if ($sourceWidth <= 0 || $sourceHeight <= 0) {
+            return [null, null];
+        }
+
+        if ($type !== 'resize') {
+            return [$sourceWidth, $sourceHeight];
+        }
+
+        $scale = min(1, $width / $sourceWidth);
+
+        if (is_numeric($height)) {
+            $scale = min($scale, (int) $height / $sourceHeight);
+        }
+
+        return [
+            max(1, (int) round($sourceWidth * $scale)),
+            max(1, (int) round($sourceHeight * $scale)),
+        ];
     }
 
     public function getThumbnailHtml($width, $height, $type, $extraAttributes = [], $name = null, $class = null, $extraClass = null)
