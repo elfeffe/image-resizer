@@ -5,8 +5,8 @@ $canvasId = 'blurhash-' . $placeholderHash;
 $imgId = 'img-' . $placeholderHash;
 @endphp
 
-<div class="relative w-full overflow-hidden image-resizer-container{{ $isBoxed ? ' h-full' : '' }}"
-     style="--min-height: {{ $isBoxed ? $height : 0 }}px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};{{ $isBoxed ? ' aspect-ratio: '.$width.' / '.$height.';' : '' }}"
+<div class="relative w-full overflow-hidden image-resizer-container"
+     style="--min-height: 0px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};{{ $isBoxed ? ' aspect-ratio: '.$width.' / '.$height.';' : '' }}"
      data-image-container>
     @if($isBoxed && $blurHash && $height !== 'null' && $height)
         <!-- BlurHash Background -->
