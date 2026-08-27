@@ -8,6 +8,7 @@ use Elfeffe\ImageResizer\Jobs\CalculateLqipJob;
 use Elfeffe\ImageResizer\Traits\HasImageResizer;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class CalculateLqipCommand extends Command
@@ -38,13 +39,34 @@ class CalculateLqipCommand extends Command
 
         $this->info('Starting LQIP data calculation (colors and BlurHash)...');
 
-        $query = Media::query()->whereHasMorph('model', '*', function (Builder $query, string $type): void {
-            $traits = class_uses_recursive($type);
+        // Resolve the model types ourselves instead of using whereHasMorph('*'):
+        // that variant calls class_uses_recursive() on every distinct model_type
+        // and fatals when media outlive their model class (an uninstalled
+        // package, a renamed model). Morph aliases must be mapped back to their
+        // class before the trait check, otherwise aliased models are skipped.
+        $types = Media::query()
+            ->distinct()
+            ->pluck('model_type')
+            ->filter(function (?string $type): bool {
+                if (blank($type)) {
+                    return false;
+                }
 
-            if (! in_array(HasImageResizer::class, $traits, true)) {
-                $query->whereKey(-1);
-            }
-        });
+                $class = Relation::getMorphedModel($type) ?? $type;
+
+                return class_exists($class)
+                    && in_array(HasImageResizer::class, class_uses_recursive($class), true);
+            })
+            ->values()
+            ->all();
+
+        if ($types === []) {
+            $this->info('No media items found to process.');
+
+            return self::SUCCESS;
+        }
+
+        $query = Media::query()->whereIn('model_type', $types);
 
         // If not forcing, only process media missing LQIP color or BlurHash.
         // A missing JSON key resolves to NULL via json_extract, so whereNull
