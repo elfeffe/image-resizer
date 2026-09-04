@@ -41,9 +41,7 @@ trait HasImageResizer
 
     public function getFriendlyImageUrl($width, $height = 'null', $type = 'resize', $media = null, $name = null, $mimeConvert = null): ?string
     {
-        if (! $name) {
-            $name = $this->name;
-        }
+        $name = Str::slug($name ?: ($this->name ?? ''), '_') ?: 'img';
 
         if (! $media) {
             $media = $this->getThumbnailMedia();
@@ -63,7 +61,7 @@ trait HasImageResizer
             default => 'jpg',
         };
 
-        $relative = '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.Str::slug($name, '_').'.'.$ext;
+        $relative = '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.$name.'.'.$ext;
 
         $serveUrl = (string) config('image-resizer.serve.url', '');
 
