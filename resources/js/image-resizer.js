@@ -163,11 +163,13 @@ function schedulePaint() {
     return;
   }
   scheduled = true;
-  requestAnimationFrame(() => {
+  // A task, not an animation frame: a background tab never gets frames, and
+  // the canvas must already be painted when it becomes visible.
+  setTimeout(() => {
     scheduled = false;
     paintAll();
     releaseLoadedPlaceholders();
-  });
+  }, 0);
 }
 
 function start() {
