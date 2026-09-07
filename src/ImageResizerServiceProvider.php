@@ -161,8 +161,11 @@ class ImageResizerServiceProvider extends PackageServiceProvider
     {
         $jsPath = self::versionedAsset('vendor/image-resizer/js/image-resizer.js');
 
+        // data-navigate-once: under wire:navigate the body is replaced on
+        // every visit and its scripts re-run; this one installs document-wide
+        // listeners and an observer, which the first run already did.
         return <<<HTML
-        <script src="{$jsPath}"></script>
+        <script src="{$jsPath}" data-navigate-once></script>
         HTML;
     }
 

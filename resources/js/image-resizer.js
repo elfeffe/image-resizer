@@ -173,6 +173,14 @@ function schedulePaint() {
 }
 
 function start() {
+  // Idempotent: a second evaluation (a navigate swap that re-ran body
+  // scripts, a duplicated tag) must not double the listeners and observer.
+  if (window.__imageResizerStarted) {
+    schedulePaint();
+    return;
+  }
+  window.__imageResizerStarted = true;
+
   schedulePaint();
 
   // load/error do not bubble; capture them once for every image, present or
