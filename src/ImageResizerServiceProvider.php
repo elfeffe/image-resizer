@@ -150,7 +150,7 @@ class ImageResizerServiceProvider extends PackageServiceProvider
 
     public static function styles(): string
     {
-        $cssPath = asset('vendor/image-resizer/css/image-resizer.css');
+        $cssPath = self::versionedAsset('vendor/image-resizer/css/image-resizer.css');
 
         return <<<HTML
         <link rel="stylesheet" href="{$cssPath}">
@@ -159,11 +159,24 @@ class ImageResizerServiceProvider extends PackageServiceProvider
 
     public static function scripts(): string
     {
-        $jsPath = asset('vendor/image-resizer/js/image-resizer.js');
+        $jsPath = self::versionedAsset('vendor/image-resizer/js/image-resizer.js');
 
         return <<<HTML
         <script src="{$jsPath}"></script>
         HTML;
+    }
+
+    /**
+     * The published asset's URL with its modification time as a query, so a
+     * republished script is fetched instead of served from browser and CDN
+     * caches for as long as they please.
+     */
+    private static function versionedAsset(string $path): string
+    {
+        $file = public_path($path);
+        $version = is_file($file) ? (string) filemtime($file) : null;
+
+        return asset($path).($version !== null ? '?v='.$version : '');
     }
 
     public function configurePackage(Package $package): void

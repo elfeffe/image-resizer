@@ -36,9 +36,10 @@ $showBlurHash = $blurHash && $canvasWidth && $canvasHeight;
         @if($srcsetWebp)
             <source srcset="{{ $srcsetWebp }}" sizes="{{ $sizes }}" type="image/webp">
         @endif
-        @if($srcset)
-            <source srcset="{{ $srcset }}" sizes="{{ $sizes }}" type="{{ $fallbackMimeType }}">
-        @endif
+        {{-- The image's own srcset already lists the fallback-format candidates;
+             a second <source> for them only repeated the URLs. Load and error
+             handling (placeholder removal, blank-on-error) lives in the package
+             script, delegated, so no image carries a handler of its own. --}}
         <img
             id="{{ $imgId }}"
             src="{{ $src }}"
@@ -46,8 +47,6 @@ $showBlurHash = $blurHash && $canvasWidth && $canvasHeight;
                 srcset="{{ $srcset }}"
             @endif
             class="{{ $class }} {{ $isBoxed ? 'w-full h-full object-cover' : ($isContained ? 'w-full h-full object-contain' : 'image-resizer-img-responsive') }}"
-            onload="document.getElementById('{{ $canvasId }}')?.remove()"
-            onerror="this.onerror=null;this.removeAttribute('srcset');this.closest('picture')?.querySelectorAll('source').forEach((source)=>source.remove());this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $fallbackHeight }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
             {!! $attributeString !!}
         />
     </picture>

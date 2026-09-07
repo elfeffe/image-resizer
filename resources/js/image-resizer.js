@@ -111,24 +111,47 @@ function paintAll(root = document) {
   root.querySelectorAll('canvas[data-blurhash]:not([data-blurhash-painted])').forEach(paintBlurHash);
 }
 
-// Older markup announced its canvas through data-blurhash-container on the
-// image instead of an inline onload; keep removing those once loaded.
-function releaseLoadedPlaceholders() {
-  document.querySelectorAll('img[data-blurhash-container]').forEach((img) => {
-    const canvasId = img.getAttribute('data-blurhash-container');
-    const hide = () => {
-      const canvas = canvasId ? document.getElementById(canvasId) : null;
-      if (canvas) {
-        canvas.style.transition = 'opacity 0.3s ease';
-        canvas.style.opacity = '0';
-        setTimeout(() => canvas.remove(), 300);
-      }
-    };
+// Once an image has pixels, its placeholder (canvas or colour block) goes.
+function releasePlaceholder(img) {
+  const container = img.closest('[data-image-container]');
+  const byId = img.getAttribute('data-blurhash-container');
+  const placeholder = (byId && document.getElementById(byId))
+    || container?.querySelector('.blurhash-canvas, .image-resizer-blurhash-bg');
 
-    if (img.complete && img.naturalHeight > 0) {
-      hide();
-    } else {
-      img.addEventListener('load', hide, { once: true });
+  if (placeholder) {
+    placeholder.remove();
+  }
+}
+
+// A source that fails to load leaves the box painted in the LQIP colour
+// rather than a broken-image glyph.
+function blankFailedImage(img) {
+  const container = img.closest('[data-image-container]');
+
+  if (!container) {
+    return;
+  }
+
+  const colour = getComputedStyle(container).getPropertyValue('--lqip-color').trim() || '#f0f0f0';
+  const width = img.getAttribute('width') || 1;
+  const height = img.getAttribute('height') || width;
+
+  img.removeAttribute('srcset');
+  img.closest('picture')?.querySelectorAll('source').forEach((source) => source.remove());
+  img.src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}'%3E%3Crect width='100%25' height='100%25' fill='${encodeURIComponent(colour)}'/%3E%3C/svg%3E`;
+}
+
+function isResizerImage(target) {
+  return target instanceof HTMLImageElement
+    && (target.closest('[data-image-container]') !== null || target.hasAttribute('data-blurhash-container'));
+}
+
+// Images that finished loading before this script ran never fire `load`
+// again; sweep them.
+function releaseLoadedPlaceholders() {
+  document.querySelectorAll('[data-image-container] img, img[data-blurhash-container]').forEach((img) => {
+    if (img.complete && img.naturalWidth > 0) {
+      releasePlaceholder(img);
     }
   });
 }
@@ -149,6 +172,19 @@ function schedulePaint() {
 
 function start() {
   schedulePaint();
+
+  // load/error do not bubble; capture them once for every image, present or
+  // future, instead of an inline handler per image.
+  document.addEventListener('load', (event) => {
+    if (isResizerImage(event.target)) {
+      releasePlaceholder(event.target);
+    }
+  }, true);
+  document.addEventListener('error', (event) => {
+    if (isResizerImage(event.target)) {
+      blankFailedImage(event.target);
+    }
+  }, true);
 
   // Content that arrives later (Livewire updates, wire:navigate, lazy
   // islands, infinite scroll) gets painted the same way.
