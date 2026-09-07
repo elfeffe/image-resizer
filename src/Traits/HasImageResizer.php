@@ -103,11 +103,24 @@ trait HasImageResizer
         };
     }
 
+    /**
+     * `$type` is the server operation — `resize` scales down keeping the
+     * ratio, `fit` crops to cover the box — plus one layout mode of its own:
+     * `contain` asks the server for `resize` within the box and lays the file
+     * out letterboxed inside a box of exactly that ratio (product cut-outs,
+     * logos: nothing may be cropped, the box must hold still while loading).
+     */
     public function getMediaHtml($media, $width, $height, $type, $extraAttributes = [], $name = 'image', $class = null, $extraClass = null)
     {
         // Handle null media gracefully
         if (! $media) {
             return '<div class="bg-gray-200 flex items-center justify-center text-gray-500 text-sm" style="width: '.$width.'px; height: '.($height ?: $width).'px;">No image</div>';
+        }
+
+        $isContained = $type === 'contain';
+
+        if ($isContained) {
+            $type = 'resize';
         }
 
         if (! $class) {
@@ -130,8 +143,10 @@ trait HasImageResizer
 
         // Only the 'fit' type crops the source to the requested box (cover).
         // 'resize' scales down preserving the source ratio, so the rendered
-        // file does not match the requested box and must size itself.
+        // file does not match the requested box and must size itself —
+        // unless the caller asked for `contain`, which reserves the box.
         $isBoxed = ! $isResponsive && $type === 'fit';
+        $isContained = $isContained && ! $isResponsive;
 
         // A null/empty/zero width builds an invalid "/image_resizer/{id}/w//..."
         // URL that 404s (e.g. plain image blocks rendered without an explicit
@@ -200,8 +215,16 @@ trait HasImageResizer
             }
         }
 
+        // The placeholder canvas needs a box to paint: the requested one when
+        // the layout reserves it, else the size the file will render at.
+        $canvasWidth = ($isBoxed || $isContained) ? $originalWidth : $renderedWidth;
+        $canvasHeight = ($isBoxed || $isContained) ? $originalHeight : $renderedHeight;
+
         return view('resizer::placeholder', [
             'attributeString' => $attributeString,
+            'canvasWidth' => is_numeric($canvasWidth) ? (int) $canvasWidth : null,
+            'canvasHeight' => is_numeric($canvasHeight) ? (int) $canvasHeight : null,
+            'isContained' => $isContained,
             'sizes' => $extraAttributes['sizes'] ?? '100vw',
             'srcset' => $srcset,
             'srcsetWebp' => $srcsetWebp,

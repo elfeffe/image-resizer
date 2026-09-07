@@ -3,28 +3,36 @@ $placeholderSeed = ($blurHash ?? '').'|'.($src ?? '').'|'.($srcset ?? '').'|'.$w
 $placeholderHash = substr(md5($placeholderSeed), 0, 13);
 $canvasId = 'blurhash-' . $placeholderHash;
 $imgId = 'img-' . $placeholderHash;
+// A reserved box: cropped to cover (fit) or letterboxed (contain). The
+// responsive layout sizes itself from the image's width/height attributes,
+// which is box enough for the placeholder to paint behind it.
+$isContained = $isContained ?? false;
+$hasBox = $isBoxed || $isContained;
+$canvasWidth = $canvasWidth ?? ($isBoxed ? $width : null);
+$canvasHeight = $canvasHeight ?? ($isBoxed && $height !== 'null' ? $height : null);
+$showBlurHash = $blurHash && $canvasWidth && $canvasHeight;
 @endphp
 
 <div class="relative w-full overflow-hidden image-resizer-container"
-     style="--min-height: 0px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};{{ $isBoxed ? ' aspect-ratio: '.$width.' / '.$height.';' : '' }}"
+     style="--min-height: 0px; --lqip-color: {{ $lqipColor ?? '#f0f0f0' }};{{ $hasBox ? ' aspect-ratio: '.$width.' / '.$height.';' : '' }}"
      data-image-container>
-    @if($isBoxed && $blurHash && $height !== 'null' && $height)
+    @if($showBlurHash)
         <!-- BlurHash Background -->
         <canvas 
             id="{{ $canvasId }}"
-            width="{{ $width }}" 
-            height="{{ $height }}"
+            width="{{ $canvasWidth }}" 
+            height="{{ $canvasHeight }}"
             class="absolute inset-0 w-full h-full blurhash-canvas"
             data-blurhash="{{ $blurHash }}">
         </canvas>
-    @elseif($isBoxed)
+    @elseif($hasBox)
         <!-- Fallback LQIP color background -->
         <div class="absolute inset-0 w-full h-full image-resizer-blurhash-bg" 
              id="{{ $canvasId }}"></div>
     @endif
     
     <!-- Main Image - On Top -->
-    <picture class="{{ $isBoxed ? 'absolute inset-0 w-full h-full' : 'image-resizer-picture-responsive' }}">
+    <picture class="{{ $hasBox ? 'absolute inset-0 w-full h-full' : 'image-resizer-picture-responsive' }}">
         @if($srcsetWebp)
             <source srcset="{{ $srcsetWebp }}" sizes="{{ $sizes }}" type="image/webp">
         @endif
@@ -37,7 +45,7 @@ $imgId = 'img-' . $placeholderHash;
             @if($srcset)
                 srcset="{{ $srcset }}"
             @endif
-            class="{{ $class }} {{ $isBoxed ? 'w-full h-full object-cover' : 'image-resizer-img-responsive' }}"
+            class="{{ $class }} {{ $isBoxed ? 'w-full h-full object-cover' : ($isContained ? 'w-full h-full object-contain' : 'image-resizer-img-responsive') }}"
             onload="document.getElementById('{{ $canvasId }}')?.remove()"
             onerror="this.onerror=null;this.removeAttribute('srcset');this.closest('picture')?.querySelectorAll('source').forEach((source)=>source.remove());this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'{{ $width }}\' height=\'{{ $fallbackHeight }}\'%3E%3Crect width=\'100%25\' height=\'100%25\' fill=\'{{ $lqipColor ?? "#f0f0f0" }}\'/%3E%3C/svg%3E';"
             {!! $attributeString !!}
@@ -45,7 +53,7 @@ $imgId = 'img-' . $placeholderHash;
     </picture>
 </div>
 
-@if($isBoxed && $blurHash && $height !== 'null' && $height)
+@if($showBlurHash)
 <script>
 // BlurHash rendering - immediate execution
 (function() {
@@ -82,8 +90,8 @@ $imgId = 'img-' . $placeholderHash;
             }
             
             // Render at optimal resolution for performance
-            const renderWidth = Math.min({{ $width }}, 100);
-            const renderHeight = Math.min({{ $height }}, 100);
+            const renderWidth = Math.min({{ $canvasWidth }}, 100);
+            const renderHeight = Math.min({{ $canvasHeight }}, 100);
             
             const pixels = new Uint8ClampedArray(renderWidth * renderHeight * 4);
             
