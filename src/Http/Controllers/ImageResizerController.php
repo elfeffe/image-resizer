@@ -299,14 +299,17 @@ class ImageResizerController extends Controller
         // Degenerate dimensions (0, negative, or a non-numeric segment such as a
         // stale "h/None" URL) are not usable resize targets. Rather than fail the
         // request, fall back to the image's real aspect ratio so a proportionally
-        // correct image is always produced.
+        // correct image is always produced. A zero-width source image has no
+        // aspect ratio to derive from, so fall back to a square box instead of
+        // dividing by zero.
         if ($width <= 0) {
             $width = $originalWidth;
         }
 
         if ($height === null || $height <= 0) {
-            $aspectRatio = $originalHeight / $originalWidth;
-            $height = max(1, (int) round($width * $aspectRatio));
+            $height = $originalWidth > 0
+                ? max(1, (int) round($width * ($originalHeight / $originalWidth)))
+                : max(1, $width);
         }
 
         if ($request->type === 'resize') {
