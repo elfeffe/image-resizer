@@ -20,6 +20,7 @@ use Intervention\Image\Interfaces\EncodedImageInterface;
 use Intervention\Image\Interfaces\ImageInterface;
 use League\Flysystem\UnableToReadFile;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ImageResizerController extends Controller
 {
@@ -119,26 +120,35 @@ class ImageResizerController extends Controller
             return redirect($targetUrl, 301)->header('X-Image-Resizer', 'redirect');
         }
 
-        $contents = $isRedirectMode ? null : $this->readObject($disk, $key);
-        $generated = false;
+        // A hit is handed to the client without ever being held. $disk->get()
+        // pulled the whole object into a PHP string first: a 4.3 MB image cost
+        // an Octane worker 23 MB it never gave back, and on neoteo a quarter of
+        // all requests are these. Octane's RoadRunner client sends a
+        // StreamedResponse without buffering it, so the bytes go from Backblaze
+        // to the reader and nothing is kept here or written to local disk.
+        if (! $isRedirectMode) {
+            $stream = $this->openObject($disk, $key);
 
-        if ($contents === null) {
-            $this->media = Media::findOrFail($request->img);
-            $contents = (string) $this->generateEncodedImage($request);
-            $this->writeObject($disk, $key, $contents, $mime);
-            $generated = true;
-
-            if ($isRedirectMode) {
-                return redirect($targetUrl, 301)->header('X-Image-Resizer', 'redirect');
+            if ($stream !== null) {
+                return $this->streamObject($stream, $mime);
             }
+        }
+
+        // Only a miss reaches here, so the variant is made once, saved to
+        // object storage, and every later request for it is streamed above.
+        $this->media = Media::findOrFail($request->img);
+        $contents = (string) $this->generateEncodedImage($request);
+        $this->writeObject($disk, $key, $contents, $mime);
+
+        if ($isRedirectMode) {
+            return redirect($targetUrl, 301)->header('X-Image-Resizer', 'redirect');
         }
 
         return Response::make($contents)
             ->header('Content-Type', $mime)
             ->header('Pragma', 'public')
             ->header('Cache-Control', 'public, max-age=2628000')
-            ->header('Connection', 'Keep-alive')
-            ->header('X-Image-Resizer', $generated ? 'object-storage-generated' : 'object-storage-hit');
+            ->header('X-Image-Resizer', 'object-storage-generated');
     }
 
     /**
@@ -146,6 +156,44 @@ class ImageResizerController extends Controller
      * network, credentials) in UnableToReadFile, so only a wrapped 404 means
      * "missing"; anything else is a real failure and must stay loud.
      */
+    /**
+     * The object as a handle, or null when it is not there yet.
+     *
+     * @return resource|null
+     */
+    protected function openObject(Filesystem $disk, string $key)
+    {
+        try {
+            $stream = $disk->readStream($key);
+
+            return is_resource($stream) ? $stream : null;
+        } catch (UnableToReadFile $e) {
+            if ($this->isMissingObject($e)) {
+                return null;
+            }
+
+            Log::error("Image resizer: object storage read failed for {$key}: {$e->getMessage()}");
+            abort(500, 'Image storage is unavailable');
+        }
+    }
+
+    /** @param  resource  $stream */
+    protected function streamObject($stream, string $mime): StreamedResponse
+    {
+        return new StreamedResponse(function () use ($stream): void {
+            fpassthru($stream);
+
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }, 200, [
+            'Content-Type' => $mime,
+            'Pragma' => 'public',
+            'Cache-Control' => 'public, max-age=2628000',
+            'X-Image-Resizer' => 'object-storage-hit',
+        ]);
+    }
+
     protected function readObject(Filesystem $disk, string $key): ?string
     {
         try {
