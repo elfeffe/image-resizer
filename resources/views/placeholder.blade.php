@@ -7,6 +7,7 @@ $imgId = 'img-' . $placeholderHash;
 // responsive layout sizes itself from the image's width/height attributes,
 // which is box enough for the placeholder to paint behind it.
 $isContained = $isContained ?? false;
+$isBoxed = $isBoxed ?? false;
 $hasBox = $isBoxed || $isContained;
 $canvasWidth = $canvasWidth ?? ($isBoxed ? $width : null);
 $canvasHeight = $canvasHeight ?? ($isBoxed && $height !== 'null' ? $height : null);
@@ -33,6 +34,9 @@ $showBlurHash = $blurHash && $canvasWidth && $canvasHeight;
     
     <!-- Main Image - On Top -->
     <picture class="{{ $hasBox ? 'absolute inset-0 w-full h-full' : 'image-resizer-picture-responsive' }}">
+        @if($srcsetAvif ?? '')
+            <source srcset="{{ $srcsetAvif }}" sizes="{{ $sizes }}" type="image/avif">
+        @endif
         @if($srcsetWebp)
             <source srcset="{{ $srcsetWebp }}" sizes="{{ $sizes }}" type="image/webp">
         @endif

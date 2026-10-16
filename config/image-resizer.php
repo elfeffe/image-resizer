@@ -63,6 +63,20 @@ return [
     ],
 
     /*
+     * How resizes are encoded. Metadata (EXIF, ICC) is always stripped once the orientation
+     * has been applied. `quality` is for JPEG and WebP. AVIF is offered first to browsers that
+     * take it (about a third smaller than WebP for the same look) when `avif` is on: it costs
+     * more CPU per resize, so it is off by default; `avif_speed` is libheif's 0 (slowest, best)
+     * to 10 (fastest) and `avif_quality` its own scale, where 60 looks like WebP at 78.
+     */
+    'encode' => [
+        'quality' => (int) env('IMAGERESIZER_QUALITY', 78),
+        'avif' => (bool) env('IMAGERESIZER_AVIF', false),
+        'avif_quality' => (int) env('IMAGERESIZER_AVIF_QUALITY', 60),
+        'avif_speed' => (int) env('IMAGERESIZER_AVIF_SPEED', 7),
+    ],
+
+    /*
      * Cached resizes nobody has asked for in this many days are deleted by `image-resizer:prune`,
      * scheduled daily at 04:40. 0 turns the schedule off; the command still runs by hand.
      */

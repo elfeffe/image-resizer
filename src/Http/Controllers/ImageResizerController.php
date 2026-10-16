@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Drivers\Imagick\Driver;
+use Intervention\Image\Encoders\AvifEncoder;
 use Intervention\Image\Encoders\JpegEncoder;
 use Intervention\Image\Encoders\PngEncoder;
 use Intervention\Image\Encoders\WebpEncoder;
@@ -24,7 +25,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ImageResizerController extends Controller
 {
-    private const array ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
+    private const array ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'avif'];
 
     private Media $media;
 
@@ -243,7 +244,8 @@ class ImageResizerController extends Controller
 
     protected function generateEncodedImage(Request $request): EncodedImageInterface
     {
-        $manager = ImageManager::usingDriver(Driver::class);
+        // Metadata goes once the orientation it describes has been applied (autoOrientation is on).
+        $manager = ImageManager::usingDriver(Driver::class, strip: true);
 
         try {
             $image = $this->decodeSourceImage($manager);
@@ -366,13 +368,26 @@ class ImageResizerController extends Controller
             $image->cover($width, $height, 'center');
         }
 
-        $quality = 82;
+        $quality = (int) config('image-resizer.encode.quality', 78);
 
         return match ($this->safeExt($request)) {
             'png' => $image->encode(new PngEncoder(interlaced: true)),
             'webp' => $image->encode(new WebpEncoder(quality: $quality)),
+            'avif' => $this->encodeAvif($image),
             default => $image->encode(new JpegEncoder(quality: $quality, progressive: true)),
         };
+    }
+
+    /** AVIF through Imagick: libheif's AV1 speed (0 slowest and best, 10 fastest) is set on the handle it encodes with. */
+    private function encodeAvif(ImageInterface $image): EncodedImageInterface
+    {
+        $native = $image->core()->native();
+
+        if ($native instanceof \Imagick) {
+            $native->setOption('heic:speed', (string) config('image-resizer.encode.avif_speed', 7));
+        }
+
+        return $image->encode(new AvifEncoder(quality: (int) config('image-resizer.encode.avif_quality', 60)));
     }
 
     protected function localCachePath(Request $request): string
@@ -394,6 +409,7 @@ class ImageResizerController extends Controller
         return match (strtolower($request->ext)) {
             'png' => 'png',
             'webp' => 'webp',
+            'avif' => 'avif',
             default => 'jpg',
         };
     }
@@ -403,6 +419,7 @@ class ImageResizerController extends Controller
         return match (strtolower($request->ext)) {
             'png' => 'image/png',
             'webp' => 'image/webp',
+            'avif' => 'image/avif',
             default => 'image/jpeg',
         };
     }

@@ -58,6 +58,7 @@ trait HasImageResizer
         $ext = match ($mimeConvert) {
             'image/png' => 'png',
             'image/webp' => 'webp',
+            'image/avif' => 'avif',
             default => 'jpg',
         };
 
@@ -99,6 +100,7 @@ trait HasImageResizer
             'image/jpg', 'image/jpeg', 'image/pjpeg' => 'image/jpeg',
             'image/png' => 'image/png',
             'image/webp' => 'image/webp',
+            'image/avif' => 'image/avif',
             default => null, // Unsupported format
         };
     }
@@ -158,7 +160,7 @@ trait HasImageResizer
 
         $originalWidth = (int) $width;
         $originalHeight = $height;
-        [$srcset, $srcsetWebp] = $this->getImageResizerResponsiveSrcsets(
+        [$srcset, $srcsetWebp, $srcsetAvif] = $this->getImageResizerResponsiveSrcsets(
             $media,
             $originalWidth,
             $originalHeight,
@@ -228,6 +230,7 @@ trait HasImageResizer
             'sizes' => $extraAttributes['sizes'] ?? '100vw',
             'srcset' => $srcset,
             'srcsetWebp' => $srcsetWebp,
+            'srcsetAvif' => $srcsetAvif,
             'src' => $src,
             'fallbackMimeType' => $this->normalizeMimeType($media->mime_type) ?? 'image/jpeg',
             'width' => $originalWidth,
@@ -250,12 +253,14 @@ trait HasImageResizer
         $sourceHeight = (int) $media->getCustomProperty('image_resizer.height', 0);
 
         if ($sourceWidth <= 0 || $sourceHeight <= 0) {
-            return ['', ''];
+            return ['', '', ''];
         }
 
         $candidateWidth = min($width * 2, $sourceWidth);
+        $offerAvif = (bool) config('image-resizer.encode.avif', false);
         $jpeg = [];
         $webp = [];
+        $avif = [];
 
         while ($candidateWidth > 150) {
             $candidateHeight = is_numeric($height)
@@ -266,10 +271,13 @@ trait HasImageResizer
             $descriptorWidth = $renderedWidth ?? $candidateWidth;
             $jpeg[$descriptorWidth] = $this->getFriendlyImageUrl($candidateWidth, $candidateHeight, $type, $media, $name).' '.$descriptorWidth.'w';
             $webp[$descriptorWidth] = $this->getFriendlyImageUrl($candidateWidth, $candidateHeight, $type, $media, $name, 'image/webp').' '.$descriptorWidth.'w';
+            if ($offerAvif) {
+                $avif[$descriptorWidth] = $this->getFriendlyImageUrl($candidateWidth, $candidateHeight, $type, $media, $name, 'image/avif').' '.$descriptorWidth.'w';
+            }
             $candidateWidth = (int) ceil($candidateWidth / 2);
         }
 
-        return [implode(', ', $jpeg), implode(', ', $webp)];
+        return [implode(', ', $jpeg), implode(', ', $webp), implode(', ', $avif)];
     }
 
     /**

@@ -592,6 +592,12 @@ return [
 ];
 ```
 
+## Encoding and cache pruning
+
+Every resize is written with its metadata stripped (EXIF and ICC, once the orientation they describe has been applied). JPEG and WebP use `IMAGERESIZER_QUALITY` (default 78). With `IMAGERESIZER_AVIF=true` the `<picture>` offers an AVIF `<source>` before the WebP one, which browsers that take it prefer (about 10–30 % smaller for the same look); it costs more CPU per resize, so it is off by default. `IMAGERESIZER_AVIF_QUALITY` (default 60, AVIF's own scale) and `IMAGERESIZER_AVIF_SPEED` (libheif's 0 slowest and best to 10 fastest, default 7) tune it. The `.avif` extension is always accepted by the route.
+
+Cached resizes nobody has asked for in `IMAGERESIZER_PRUNE_DAYS` days (default 30; `0` turns the schedule off) are deleted every night at 04:40 by `image-resizer:prune`; on a local disk the last read counts as the last use, on a remote disk the file's age does, and folders left empty are removed. `php artisan image-resizer:prune --days=7 --dry-run` shows what a run would delete.
+
 ## Blade Directives
 
 The package provides convenient Blade directives:
