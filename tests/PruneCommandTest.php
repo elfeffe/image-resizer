@@ -12,7 +12,7 @@ class PruneCommandTest extends TestCase
 {
     private string $root;
 
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
 
@@ -22,7 +22,7 @@ class PruneCommandTest extends TestCase
         Storage::forgetDisk('prune_test');
     }
 
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         File::deleteDirectory($this->root);
 

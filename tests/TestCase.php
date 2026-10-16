@@ -2,13 +2,14 @@
 
 namespace Elfeffe\ImageResizer\Tests;
 
+use Elfeffe\ImageResizer\ImageResizerServiceProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Orchestra\Testbench\TestCase as Orchestra;
-use Elfeffe\ImageResizer\ImageResizerServiceProvider;
+use Webwizo\Shortcodes\ShortcodesServiceProvider;
 
 class TestCase extends Orchestra
 {
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
 
@@ -21,7 +22,7 @@ class TestCase extends Orchestra
     {
         return array_values(array_filter([
             // The provider registers a shortcode when the package that serves them is installed.
-            class_exists(\Webwizo\Shortcodes\ShortcodesServiceProvider::class) ? \Webwizo\Shortcodes\ShortcodesServiceProvider::class : null,
+            class_exists(ShortcodesServiceProvider::class) ? ShortcodesServiceProvider::class : null,
             ImageResizerServiceProvider::class,
         ]));
     }
