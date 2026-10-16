@@ -58,13 +58,24 @@ class PruneCommandTest extends TestCase
         $this->artisan('image-resizer:prune', ['--days' => 0])->assertFailed();
     }
 
-    public function test_it_runs_every_night(): void
+    public function test_it_runs_every_night_on_every_server_when_the_disk_is_local(): void
     {
         $events = collect(app(Schedule::class)->events())
             ->filter(fn ($event) => str_contains((string) $event->command, 'image-resizer:prune'));
 
         $this->assertCount(1, $events);
         $this->assertSame('40 4 * * *', $events->first()->expression);
+        $this->assertFalse($events->first()->onOneServer, 'a local disk is each server\'s own');
+    }
+
+    public function test_it_runs_on_one_server_only_when_the_disk_is_shared(): void
+    {
+        config()->set('filesystems.disks.prune_test', ['driver' => 's3', 'bucket' => 'b', 'region' => 'r', 'key' => 'k', 'secret' => 's']);
+
+        $event = collect(app(Schedule::class)->events())
+            ->first(fn ($event) => str_contains((string) $event->command, 'image-resizer:prune'));
+
+        $this->assertTrue($event->onOneServer, 'a remote disk is shared by every server');
     }
 
     private function variant(string $path, int $madeDaysAgo, ?int $readDaysAgo = null): string

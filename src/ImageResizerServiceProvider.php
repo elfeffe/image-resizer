@@ -49,10 +49,17 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             InstallHtaccessCommand::class,
         ]);
 
-        // The cache is pruned every night, unless the host set the days to 0.
+        // The cache is pruned every night, unless the host set the days to 0. A local disk is each server's own, so each
+        // prunes it; a remote disk is shared, so one server prunes it for all.
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
-            if ((int) config('image-resizer.prune.days', 30) > 0) {
-                $schedule->command('image-resizer:prune')->dailyAt('04:40')->withoutOverlapping();
+            if ((int) config('image-resizer.prune.days', 30) <= 0) {
+                return;
+            }
+
+            $event = $schedule->command('image-resizer:prune')->dailyAt('04:40')->withoutOverlapping();
+
+            if ($this->cacheDiskDriver() !== 'local') {
+                $event->onOneServer();
             }
         });
 
@@ -137,6 +144,14 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             'visibility' => (string) config('image-resizer.storage.visibility', 'public'),
             'throw' => true,
         ];
+    }
+
+    /** The driver of the disk the resizes are kept on, as the host configured it once every provider has run. */
+    protected function cacheDiskDriver(): string
+    {
+        $disk = (string) config('image-resizer.storage.disk', 'image_resizer');
+
+        return (string) config("filesystems.disks.{$disk}.driver", config('image-resizer.storage.driver', 'local'));
     }
 
     protected function validateServeConfiguration(): void
