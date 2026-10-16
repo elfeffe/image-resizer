@@ -3,6 +3,7 @@
 namespace Elfeffe\ImageResizer\Http\Controllers;
 
 use Aws\S3\Exception\S3Exception;
+use Elfeffe\ImageResizer\Support\Access;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -31,6 +32,8 @@ class ImageResizerController extends Controller
 
     public function show(Request $request)
     {
+        $this->admit($request);
+
         $ext = strtolower($request->ext);
         if (! in_array($ext, self::ALLOWED_EXTENSIONS, true)) {
             abort(400, 'Invalid image extension');
@@ -49,9 +52,55 @@ class ImageResizerController extends Controller
     }
 
     /**
+     * Everything a request must satisfy before the resizer reads the database or a disk: the signature (in a project that signs), a
+     * type the controller implements, `original` only where the project serves it, a size within the limit. Anything else is refused
+     * here, so a refusal costs one HMAC.
+     *
+     * Only the route's own segments are trusted: Request::__get() prefers a query-string value to a route parameter, so `?type=original`
+     * or `?img=7` would otherwise steer the code below, past the signature. They are written back canonical (`w` and `h` as plain
+     * numbers, 0 and `null` meaning the source's own size), so a hundred spellings of one resize are one cache entry.
+     */
+    protected function admit(Request $request): void
+    {
+        $segment = static fn (string $name): string => (string) ($request->route()?->parameter($name) ?? $request->input($name, ''));
+        [$img, $w, $h, $type, $path, $ext] = array_map($segment, ['img', 'w', 'h', 'type', 'path', 'ext']);
+
+        if (Access::signed() && ! Access::accepts($request->query('s'), $img, $w, $h, $type, $path.'.'.$ext)) {
+            abort(403, 'Invalid image signature');
+        }
+
+        if (! in_array($type, Access::TYPES, true)) {
+            abort(422, 'Unsupported image type');
+        }
+
+        if ($type === 'original' && ! Access::allowsOriginal()) {
+            abort(403, 'Original images are not served');
+        }
+
+        // A width or height that is not a positive number has always meant "the source's own": a stale `h/None` or `w/0` URL still works.
+        $width = (int) $w;
+        $height = $h === 'null' ? 0 : (int) $h;
+
+        if (max($width, $height) > Access::maxDimension()) {
+            abort(422, 'Image size out of range');
+        }
+
+        $request->merge([
+            'img' => ctype_digit($img) ? (string) (int) $img : $img,
+            'w' => (string) max(0, $width),
+            'h' => $height > 0 ? (string) $height : 'null',
+            'type' => $type,
+            'path' => $path,
+            'ext' => $ext,
+        ]);
+    }
+
+    /**
      * Local driver: unchanged historical flow. Cached files keep the flat
      * {id}/{w}x{h}/{type}.{ext} layout the Apache/Nginx fast paths rely on,
-     * and a cache hit is served without touching the database.
+     * and a cache hit is served without touching the database. In a project
+     * that signs, {id} is Access::folder()'s token, so no fast path can serve
+     * a file without the signature the controller checked.
      */
     protected function showFromLocalDisk(Request $request)
     {
@@ -365,7 +414,8 @@ class ImageResizerController extends Controller
         if ($request->type === 'resize') {
             $image->scaleDown(width: $width, height: $height);
         } elseif ($request->type === 'fit') {
-            $image->cover($width, $height, 'center');
+            // Never above the source: a box larger than the image crops it to the box's ratio at its own size.
+            $image->coverDown($width, $height, 'center');
         }
 
         $quality = (int) config('image-resizer.encode.quality', 78);
@@ -392,7 +442,7 @@ class ImageResizerController extends Controller
 
     protected function localCachePath(Request $request): string
     {
-        return $request->img.'/'.$request->w.'x'.$request->h.'/'.$request->type.'.'.$this->safeExt($request);
+        return Access::folder($request->img).'/'.$request->w.'x'.$request->h.'/'.$request->type.'.'.$this->safeExt($request);
     }
 
     /**
@@ -401,7 +451,7 @@ class ImageResizerController extends Controller
      */
     protected function objectStoragePath(Request $request): string
     {
-        return $request->img.'/w/'.$request->w.'/h/'.$request->h.'/'.$request->type.'/'.$request->path.'.'.$this->safeExt($request);
+        return Access::folder($request->img).'/w/'.$request->w.'/h/'.$request->h.'/'.$request->type.'/'.$request->path.'.'.$this->safeExt($request);
     }
 
     protected function safeExt(Request $request): string

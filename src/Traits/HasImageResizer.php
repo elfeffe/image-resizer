@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Elfeffe\ImageResizer\Traits;
 
+use Elfeffe\ImageResizer\Support\Access;
 use Illuminate\Support\Str;
 use Illuminate\View\ComponentAttributeBag;
 
@@ -62,7 +63,16 @@ trait HasImageResizer
             default => 'jpg',
         };
 
-        $relative = '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.$name.'.'.$ext;
+        // A size above the limit is what the route would refuse: ask for the largest it serves instead of a broken image.
+        $width = Access::clamp($width);
+        $height = Access::clamp($height);
+        $file = $name.'.'.$ext;
+        $relative = '/image_resizer/'.$media->id.'/w/'.$width.'/h/'.$height.'/'.$type.'/'.$file;
+
+        // The signature covers every segment of the path, so it is made from the very strings the URL carries.
+        if (Access::signed()) {
+            $relative .= '?s='.Access::signature((string) $media->id, (string) $width, (string) $height, (string) $type, $file);
+        }
 
         $serveUrl = (string) config('image-resizer.serve.url', '');
 

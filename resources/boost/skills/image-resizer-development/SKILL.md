@@ -13,6 +13,7 @@ Use this skill when working on `elfeffe/image-resizer`, optimized media output, 
 |---|---|
 | `Traits\HasImageResizer` | Model helpers for URLs, HTML, and srcsets |
 | `Http\Controllers\ImageResizerController` | Dynamic resize endpoint |
+| `Support\Access` | Signature, cache folder, type and size limits |
 | `Jobs\CalculateLqipJob` | Generates BlurHash and LQIP data |
 | `routes/web.php` | Registers `image_resizer/...` route |
 | `Console\Commands\InstallHtaccessCommand` | Apache optimization helper |
@@ -56,7 +57,8 @@ Include the package directives once in the layout:
   - `storage.driver=s3`: resizes live in the bucket under `storage.root` (default `image_resizer`); no local writes.
 - `serve.mode=cdn_origin` + `serve.url`: URLs point at the CDN, which origin-pulls the app (GET-first on the bucket, generate on miss, stream; never redirects).
 - `serve.mode=redirect` + `serve.url`: app route 301s to the public object URL (requires public-read bucket).
-- `type=original` always redirects to the original media URL.
+- `type=original` redirects to the original media URL, and is a 403 unless `image-resizer.allow_original` is on.
+- Access control (`Support\Access`, `ImageResizerController::admit()`): `w`/`h` above `image-resizer.max_dimension` and a `type` outside `Access::TYPES` are a 422; the named limiter `image-resizer` (`image-resizer.throttle`) answers 429; a query-string `type`/`img` never overrides the route. With `image-resizer.signed` every builder URL ends in `?s=` (HMAC of `{id}|{w}|{h}|{type}|{name}.{ext}`), the route answers 403 to any other request before it reads anything, and the cache lives under `Access::folder()`'s token. Never build a resizer URL by hand.
 - Objects are stored with `Content-Type` and `Cache-Control: public, max-age=2628000`; storage failures log + 500 (never silent).
 
 ## Best practices

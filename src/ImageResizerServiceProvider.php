@@ -9,10 +9,13 @@ use Elfeffe\ImageResizer\Console\Commands\InstallHtaccessCommand;
 use Elfeffe\ImageResizer\Observers\MediaObserver;
 use Elfeffe\ImageResizer\Shortcodes\MediaLibraryItem;
 use Elfeffe\ImageResizer\Support\QueuesMissingLqipData;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -61,6 +64,13 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             if ($this->cacheDiskDriver() !== 'local') {
                 $event->onOneServer();
             }
+        });
+
+        // The route's limiter: `image-resizer.throttle` requests a minute per address, 0 for none.
+        RateLimiter::for('image-resizer', function (Request $request): Limit {
+            $perMinute = (int) config('image-resizer.throttle', 120);
+
+            return $perMinute > 0 ? Limit::perMinute($perMinute)->by($request->ip()) : Limit::none();
         });
 
         $this->loadRoutesFrom(__DIR__.'/../routes/web.php');

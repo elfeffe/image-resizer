@@ -83,4 +83,32 @@ return [
     'prune' => [
         'days' => (int) env('IMAGERESIZER_PRUNE_DAYS', 30),
     ],
+
+    /*
+     * Signed URLs. `/image_resizer/{id}/…` takes any media id and asks for no login, so a counter loop lists everything a project
+     * stores. A project that signs has every URL its models build (HasImageResizer) end in `?s=`, an HMAC-SHA256 of the path's
+     * segments; the route answers 403 to any other request before it reads the database or a disk, and keeps its cache under a folder
+     * only the app can name. Off by default so a project that writes these URLs by hand keeps working until it uses the builders.
+     * The key is `signature_key`, else `app.key`: rotating it invalidates every URL already handed out, in pages, feeds and emails.
+     */
+    'signed' => (bool) env('IMAGERESIZER_SIGNED', false),
+
+    'signature_key' => env('IMAGERESIZER_SIGNATURE_KEY'),
+
+    /*
+     * `type=original` redirects to the media's own file, whatever the media is and whoever asks (in a project that signs, whoever
+     * holds a signed URL). Off by default; no builder in this package makes such a URL.
+     */
+    'allow_original' => (bool) env('IMAGERESIZER_ALLOW_ORIGINAL', false),
+
+    /*
+     * The largest width or height the route serves, in pixels (larger is a 422). `resize` and `fit` never go above the source's own size.
+     */
+    'max_dimension' => (int) env('IMAGERESIZER_MAX_DIMENSION', 4096),
+
+    /*
+     * Requests a minute per address (the named limiter `image-resizer`), served or refused: a page of thumbnails asks for one each.
+     * 0 turns it off. Behind a proxy or a CDN the address is the proxy's unless the host trusts it: raise this, or trust the proxy.
+     */
+    'throttle' => (int) env('IMAGERESIZER_THROTTLE', 120),
 ];

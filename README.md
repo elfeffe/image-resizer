@@ -208,7 +208,7 @@ the configured `root` prefix and are never written to the app disk.
   (generating + storing it on first request). Requires `serve.url` and a
   public-read bucket.
 
-In every mode `type=original` redirects to the original media URL.
+`type=original` redirects to the original media URL, and is refused unless `allow_original` is on (see *Access control*).
 
 ### Notes
 
@@ -219,6 +219,58 @@ In every mode `type=original` redirects to the original media URL.
 - Storage failures are never silent: the endpoint returns 500 and logs the error.
 - When a CDN sits in front of the app, keep edge 404 caching disabled so missing
   media does not poison the cache.
+
+## Access control
+
+`/image_resizer/{id}/w/{w}/h/{h}/{type}/{file}` takes any media id and asks for no login, so unless a project closes it a counter
+loop (`/image_resizer/1/…`, `/2/…`) lists everything the project stores. These rules apply to every project; signing is opt-in.
+
+| Key | Env | Default | Purpose |
+|---|---|---|---|
+| `signed` | `IMAGERESIZER_SIGNED` | `false` | Sign every URL the builders make and refuse any other request (below) |
+| `signature_key` | `IMAGERESIZER_SIGNATURE_KEY` | `app.key` | The HMAC key |
+| `allow_original` | `IMAGERESIZER_ALLOW_ORIGINAL` | `false` | Serve `type=original` (a redirect to the media's own file) |
+| `max_dimension` | `IMAGERESIZER_MAX_DIMENSION` | `4096` | The largest `w` or `h`; more is a 422 |
+| `throttle` | `IMAGERESIZER_THROTTLE` | `120` | Requests a minute per address (named limiter `image-resizer`); 0 turns it off |
+
+### Always on
+
+- **Sizes:** `w` and `h` above `max_dimension` are a 422. A width or height that is not a positive number (`0`, `None`) still means the
+  source's own size, and every spelling of a size (`0100`, `h/None`) is one cache entry. The builders ask for the limit at most.
+- **Types:** `resize`, `fit`, `null` (the file re-encoded at its own size, what `getMediaHtml()` asks for without a type), `crop`
+  (never implemented, so also the file at its own size; two Neoteo themes still ask for it) and `original`; any other is a 422. `resize` and `fit` never go above the source: a `fit` box larger than the image crops it to the box's
+  ratio at its own size.
+- **`original`** is a 403 unless `allow_original` is on. No builder of this package makes such a URL.
+- **Throttle:** above `throttle` requests a minute from one address the route answers 429 with `Retry-After`. A cache hit counts, and a
+  page of thumbnails asks for one request each, so a dense page needs a higher number. Behind a proxy or a CDN the address is the proxy's
+  unless the host trusts it. A host that wants another rule defines the limiter `image-resizer` itself.
+- **Route segments only:** a `?type=original` or `?img=7` in the query string changes nothing; the code reads the path's own segments.
+
+### Signed URLs
+
+With `signed` on, `getFriendlyImageUrl()`, `getMediaUrl()` and `getMediaHtml()` end every URL in `?s=`, and the route answers 403 to
+any request whose `s` is not the signature of its own path, before it reads the database or a disk (a cache hit included):
+
+```
+s = hash_hmac('sha256', "{id}|{w}|{h}|{type}|{name}.{ext}", signature_key ?? app.key)   // hex, the path's segments as the URL carries them
+```
+
+`Elfeffe\ImageResizer\Support\Access::signature($id, $w, $h, $type, $file)` makes it. The file name and the format are signed too:
+the encoder follows `ext`, and an object-storage resize is kept under a key that carries the name.
+
+- A URL is valid for as long as the key is: it survives a deploy, and rotating `app.key` (or `signature_key`) turns every URL already
+  handed out, in pages, feeds and emails, into a 403.
+- Resizes are cached under a token derived from the id (`Access::folder()`), not the id. A file kept at `{id}/{w}x{h}/{type}.{ext}` is
+  reachable by anyone who knows three small numbers (`/storage/image_resizer/…` when the disk is linked into `public`, the Apache and
+  Nginx fast paths, a public bucket), and none of them can check a signature. The signature is never part of a path: all the signed
+  URLs of a variant share one file. Turning `signed` on leaves the old `{id}` folders unread; delete them (`image-resizer:prune` does,
+  in time).
+- Never build a resizer URL by hand and never rewrite its `w`, `h` or `type` in JavaScript or in a consumer of an API: that is a 403.
+  Ask the builders for the size you need.
+- The fast paths of `image-resizer:install-htaccess` and the Nginx rewrite above never find a file in a project that signs; do not rely
+  on them there. A CDN pull zone must forward the query string to the app (`?s=` is part of the URL).
+- `serve.mode=redirect` hands the object's own URL to whoever passes the check, and that bucket is public-read: whoever has seen the
+  redirect can keep reading the object. Use `cdn_origin` with a private bucket for confidential media.
 
 ## Usage
 
