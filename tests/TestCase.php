@@ -19,9 +19,11 @@ class TestCase extends Orchestra
 
     protected function getPackageProviders($app)
     {
-        return [
+        return array_values(array_filter([
+            // The provider registers a shortcode when the package that serves them is installed.
+            class_exists(\Webwizo\Shortcodes\ShortcodesServiceProvider::class) ? \Webwizo\Shortcodes\ShortcodesServiceProvider::class : null,
             ImageResizerServiceProvider::class,
-        ];
+        ]));
     }
 
     public function getEnvironmentSetUp($app)

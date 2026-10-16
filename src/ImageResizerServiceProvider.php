@@ -4,11 +4,12 @@ namespace Elfeffe\ImageResizer;
 
 use Elfeffe\BuilderComponent\View\Components\Image;
 use Elfeffe\ImageResizer\Commands\CalculateLqipCommand;
-use Elfeffe\ImageResizer\Commands\ImageResizerCommand;
+use Elfeffe\ImageResizer\Commands\PruneCommand;
 use Elfeffe\ImageResizer\Console\Commands\InstallHtaccessCommand;
 use Elfeffe\ImageResizer\Observers\MediaObserver;
 use Elfeffe\ImageResizer\Shortcodes\MediaLibraryItem;
 use Elfeffe\ImageResizer\Support\QueuesMissingLqipData;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Event;
@@ -43,10 +44,17 @@ class ImageResizerServiceProvider extends PackageServiceProvider
         $this->validateServeConfiguration();
 
         $this->commands([
-            ImageResizerCommand::class,
+            PruneCommand::class,
             CalculateLqipCommand::class,
             InstallHtaccessCommand::class,
         ]);
+
+        // The cache is pruned every night, unless the host set the days to 0.
+        $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
+            if ((int) config('image-resizer.prune.days', 30) > 0) {
+                $schedule->command('image-resizer:prune')->dailyAt('04:40')->withoutOverlapping();
+            }
+        });
 
         $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
 
@@ -194,7 +202,7 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             ->hasConfigFile()
             ->hasViews()
             ->hasMigration('create_image-resizer_table')
-            ->hasCommand(ImageResizerCommand::class)
+            ->hasCommand(PruneCommand::class)
             ->hasCommand(CalculateLqipCommand::class)
             ->hasCommand(InstallHtaccessCommand::class)
             ->publishesServiceProvider('ImageResizerServiceProvider')

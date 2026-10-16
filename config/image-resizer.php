@@ -61,4 +61,12 @@ return [
          */
         'mode' => env('IMAGERESIZER_SERVE_MODE', 'cdn_origin'),
     ],
+
+    /*
+     * Cached resizes nobody has asked for in this many days are deleted by `image-resizer:prune`,
+     * scheduled daily at 04:40. 0 turns the schedule off; the command still runs by hand.
+     */
+    'prune' => [
+        'days' => (int) env('IMAGERESIZER_PRUNE_DAYS', 30),
+    ],
 ];
