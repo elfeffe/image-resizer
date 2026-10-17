@@ -13,11 +13,18 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\ImageManager;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Throwable;
 
+/**
+ * A placeholder (size, dominant colour, BlurHash) for an image. Best effort: nothing waits for it, so a file that is not there (the
+ * row is written before the file is, a fixture has none, the object was deleted), is empty, or cannot be decoded ends the job
+ * quietly instead of failing it. The next save of the model, or `image-resizer:calculate-lqip`, queues the media again.
+ */
 class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -85,19 +92,29 @@ class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        [$imageSource, $binary] = $this->getImageSource($media);
+        $source = $this->getImageSource($media);
 
-        if (! $binary && ! file_exists($imageSource)) {
-            throw new Exception("Media file not found: {$imageSource}");
+        if ($source === null) {
+            Log::debug("[image-resizer] LQIP skipped for media {$this->mediaId}: its file is not there, or is empty.");
+
+            return;
         }
+
+        [$imageSource, $binary] = $source;
 
         if ($this->force
             || ! $media->hasCustomProperty('image_resizer.width')
             || ! $media->hasCustomProperty('image_resizer.height')) {
-            $manager = ImageManager::usingDriver(Driver::class);
-            $image = $binary
-                ? $manager->decodeBinary($imageSource)
-                : $manager->decodePath($imageSource);
+            try {
+                $manager = ImageManager::usingDriver(Driver::class);
+                $image = $binary
+                    ? $manager->decodeBinary($imageSource)
+                    : $manager->decodePath($imageSource);
+            } catch (Throwable $e) {
+                Log::info("[image-resizer] LQIP skipped for media {$this->mediaId}: its file cannot be decoded ({$e->getMessage()}).");
+
+                return;
+            }
 
             $media
                 ->setCustomProperty('image_resizer.width', $image->width())
@@ -126,21 +143,27 @@ class CalculateLqipJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * @return array{0: string, 1: bool}
+     * The file's path (or, on a disk that is not local, its bytes) and whether those are bytes; null when the file is not there or is
+     * empty.
+     *
+     * @return array{0: string, 1: bool}|null
      */
-    private function getImageSource(Media $media): array
+    private function getImageSource(Media $media): ?array
     {
         if (config("filesystems.disks.{$media->disk}.driver") === 'local') {
-            return [$media->getPath(), false];
+            $path = $media->getPath();
+
+            return is_file($path) && filesize($path) > 0 ? [$path, false] : null;
         }
 
-        $contents = Storage::disk($media->disk)->get($media->getPathRelativeToRoot());
-
-        if (! is_string($contents) || $contents === '') {
-            throw new Exception("Media file is empty: {$media->getPathRelativeToRoot()}");
+        try {
+            $contents = Storage::disk($media->disk)->get($media->getPathRelativeToRoot());
+        } catch (Throwable) {
+            // An object that is not there: a disk configured with `throw => true` says so with an exception, the others with null.
+            return null;
         }
 
-        return [$contents, true];
+        return is_string($contents) && $contents !== '' ? [$contents, true] : null;
     }
 
     /**
