@@ -34,7 +34,7 @@ class Product extends Model implements HasMedia
 ### Storage & serving
 
 - Resized images live on the `image_resizer` disk; `config('image-resizer')` selects the driver (`local` default, `s3` for object storage).
-- Default config reproduces the historical behaviour, except the access rules below — do not change other defaults or the flat local cache layout (`{id}/{w}x{h}/{type}.{ext}`), which Apache/Nginx fast paths depend on (in a project that signs the `{id}` folder is `Access::folder()`'s token).
+- Default config reproduces the historical behaviour exactly — do not change defaults or the flat local cache layout (`{id}/{w}x{h}/{type}.{ext}`), which Apache/Nginx fast paths depend on (in a project that signs the `{id}` folder is `Access::folder()`'s token).
 - In s3 modes never write locally, never add fallbacks, and never redirect in `cdn_origin` mode (CDN loop).
 - Object-storage failures must stay loud: `Log::error` + 500, never silent regeneration.
 - Do not change the s3 key layout (`{id}/w/{w}/h/{h}/{type}/{file}` under the disk root) — serve URLs map to it 1:1.
@@ -42,6 +42,9 @@ class Product extends Model implements HasMedia
 
 ### Access control
 
-- The route takes any media id and asks for no login. Always on: `w`/`h` at most `image-resizer.max_dimension` (422), `type` one of `Access::TYPES` (422), `type=original` a 403 unless `image-resizer.allow_original`, the named limiter `image-resizer` (`image-resizer.throttle` a minute per address), and only the route's own segments are read (a query-string `type`/`img` changes nothing).
-- A project that sets `image-resizer.signed` has every URL end in `?s=`, the HMAC of `{id}|{w}|{h}|{type}|{name}.{ext}` (`Support\Access::signature()`); `ImageResizerController::admit()` answers 403 before any query or disk read, a cache hit included.
+- The route takes any media id and asks for no login. A project that sets none of `image-resizer.signed` / `image-resizer.strict` is served exactly as before (do not break that: same URLs, same cache layout, same answers); only the route's own segments are read (a query-string `type`/`img` changes nothing).
+- A strict project (`strict`, or `signed`, which includes it): `w`/`h` at most `image-resizer.max_dimension` (422), `type` one of `Access::TYPES` (422), `type=original` a 403 unless `image-resizer.allow_original`, `fit` never above the source. `image-resizer.throttle` (unset = no limit) sets the named limiter `image-resizer`, requests a minute per address.
+- A project that sets `image-resizer.signed` has every URL end in `?s=`, the HMAC of `{id}|{w}|{h}|{type}|{name}.{ext}` (`Support\Access::signature()`); `ImageResizerController::admit()` answers 403 before any query or disk read, a cache hit included, and the cache lives under `Access::folder()`'s token.
 - Build a URL only with `getMediaUrl()`, `getMediaHtml()` or `getFriendlyImageUrl()`: never by hand, never by rewriting a size in JavaScript. Keep `HasImageResizer` and `ImageResizerController::admit()` agreeing on every byte of the signed path, and the signature out of every cache path.
+- `webwizo/laravel-shortcodes` is a suggestion: guard every use with `class_exists` and `$this->app->bound('shortcode')`.
+- `image-resizer:prune` counts a file only once it is deleted; a host that queues it itself sets `image-resizer.prune.schedule` false.

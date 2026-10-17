@@ -20,8 +20,10 @@
         "bepsvpt/blurhash": "^4.1.0",
         "intervention/image": "^4.0",
         "laravel/framework": "^12.0 || ^13.0",
-        "spatie/laravel-package-tools": "^1.93.0",
-        "webwizo/laravel-shortcodes": "dev-master"
+        "spatie/laravel-package-tools": "^1.93.0"
+    },
+    "suggest": {
+        "webwizo/laravel-shortcodes": "Renders the [media-library-item] shortcode in content (dev-master). The package boots and renders without it; its provider replaces Laravel's view factory, so a project that uses no shortcode is better off without it."
     },
     "autoload": {
         "psr-4": {

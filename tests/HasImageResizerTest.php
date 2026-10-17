@@ -91,9 +91,26 @@ final class HasImageResizerTest extends TestCase
         $this->assertStringStartsWith('/image_resizer/42/w/4096/h/4096/resize/img.jpg?s=', $url);
         $this->assertStringEndsWith(Access::signature(42, 4096, 4096, 'resize', 'img.jpg'), $url);
 
-        config(['image-resizer.signed' => false, 'image-resizer.max_dimension' => 1000]);
+        config(['image-resizer.signed' => false, 'image-resizer.strict' => true, 'image-resizer.max_dimension' => 1000]);
 
         $this->assertSame('/image_resizer/42/w/1000/h/null/resize/img.jpg', $this->resizer()->getFriendlyImageUrl(2000, media: $this->media()));
+    }
+
+    #[Test]
+    public function it_builds_the_url_it_always_built_unless_the_project_is_strict_or_signs(): void
+    {
+        $this->assertFalse(Access::strict());
+        $this->assertSame('/image_resizer/42/w/99999/h/5000/resize/img.jpg', $this->resizer()->getFriendlyImageUrl(99999, 5000, media: $this->media()));
+
+        config(['image-resizer.strict' => true]);
+
+        $this->assertTrue(Access::strict());
+        $this->assertFalse(Access::signed(), 'strict alone signs nothing');
+        $this->assertSame('/image_resizer/42/w/4096/h/4096/resize/img.jpg', $this->resizer()->getFriendlyImageUrl(99999, 5000, media: $this->media()));
+
+        config(['image-resizer.strict' => false, 'image-resizer.signed' => true, 'app.key' => 'a-test-key']);
+
+        $this->assertTrue(Access::strict(), 'signing implies strict');
     }
 
     #[Test]
@@ -135,6 +152,10 @@ final class HasImageResizerTest extends TestCase
         config(['app.key' => 'a-test-key']);
 
         $this->assertSame('42', Access::folder(42));
+
+        config(['image-resizer.strict' => true]);
+
+        $this->assertSame('42', Access::folder(42), 'strict alone keeps the historical layout');
 
         config(['image-resizer.signed' => true]);
 

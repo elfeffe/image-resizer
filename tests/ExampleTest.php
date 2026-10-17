@@ -41,6 +41,16 @@ class ExampleTest extends TestCase
         $this->assertStringNotContainsString('image/avif', view('resizer::placeholder', $this->viewData(isResponsive: true, height: 'null'))->render());
     }
 
+    #[Test]
+    public function it_registers_the_media_library_item_shortcode_when_the_shortcodes_package_is_there(): void
+    {
+        if (! $this->app->bound('shortcode')) {
+            $this->markTestSkipped('webwizo/laravel-shortcodes is a suggestion and is not installed here.');
+        }
+
+        $this->assertArrayHasKey('media-library-item', $this->app->make('shortcode.compiler')->getRegistered());
+    }
+
     /**
      * @return array<string, mixed>
      */

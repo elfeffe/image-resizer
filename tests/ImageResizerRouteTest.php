@@ -74,8 +74,49 @@ class ImageResizerRouteTest extends TestCase
     }
 
     #[Test]
+    public function a_project_that_did_not_opt_in_is_served_as_it_always_was(): void
+    {
+        $this->makeMediaTable();
+        $this->makeMedia(5, $this->png(100, 50));
+
+        $this->assertFalse(Access::strict());
+        $this->assertNull(config('image-resizer.throttle'), 'no limit unless the host sets one');
+
+        // What a strict project refuses reaches the picture: no size limit, any type, `original` redirects, `fit` enlarges.
+        $this->assertSame([100, 50], $this->dimensionsOf('/image_resizer/5/w/99999/h/null/resize/a.png'));
+        $this->assertSame([100, 50], $this->dimensionsOf('/image_resizer/5/w/100/h/null/blur/b.png'));
+        $this->assertSame([400, 400], $this->dimensionsOf('/image_resizer/5/w/400/h/400/fit/c.png'));
+        $this->get('/image_resizer/5/w/1/h/1/original/x.jpg')->assertRedirect(Media::query()->find(5)->getFullUrl());
+
+        // Each spelling of a size keeps its own cache file, in a folder named by the id, as before.
+        $this->get('/image_resizer/005/w/0100/h/None/resize/d.png')->assertOk();
+        $this->assertFileExists($this->cacheRoot.'/005/0100xNone/resize.png');
+        $this->assertFileExists($this->cacheRoot.'/5/99999xnull/resize.png');
+
+        // No limiter: the answers never carry its headers and never turn into a 429.
+        foreach (range(1, 130) as $ignored) {
+            $this->get('/image_resizer/5/w/99999/h/null/resize/a.png')->assertOk()->assertHeaderMissing('X-RateLimit-Limit');
+        }
+    }
+
+    #[Test]
+    public function a_strict_project_without_signing_limits_the_request_but_asks_for_no_signature(): void
+    {
+        config()->set('image-resizer.strict', true);
+        $this->makeMediaTable();
+        $this->makeMedia(5, $this->png(100, 50));
+
+        $this->get('/image_resizer/5/w/100/h/null/resize/thumb.png')->assertOk();
+        $this->get('/image_resizer/5/w/99999/h/null/resize/thumb.png')->assertStatus(422);
+        $this->get('/image_resizer/5/w/100/h/null/blur/thumb.png')->assertStatus(422);
+        $this->get('/image_resizer/5/w/1/h/1/original/thumb.png')->assertForbidden();
+        $this->assertFileExists($this->cacheRoot.'/5/100xnull/resize.png', 'the cache folder is a token only where the project signs');
+    }
+
+    #[Test]
     public function a_size_above_the_limit_is_refused(): void
     {
+        config()->set('image-resizer.strict', true);
         $this->makeMediaTable();
 
         $this->get('/image_resizer/5/w/4096/h/4096/fit/thumb.webp')->assertNotFound();
@@ -94,6 +135,7 @@ class ImageResizerRouteTest extends TestCase
     #[Test]
     public function a_size_that_is_not_a_positive_number_still_means_the_source_own(): void
     {
+        config()->set('image-resizer.strict', true);
         $this->makeMediaTable();
 
         foreach (['w/0/h/null', 'w/100/h/None', 'w/100/h/0', 'w/-5/h/-5', 'w/abc/h/null'] as $size) {
@@ -104,6 +146,7 @@ class ImageResizerRouteTest extends TestCase
     #[Test]
     public function a_type_the_controller_does_not_implement_is_refused(): void
     {
+        config()->set('image-resizer.strict', true);
         $this->makeMediaTable();
 
         foreach (['blur', 'cover', 'contain', 'RESIZE', 'resize%20', '..'] as $type) {
@@ -119,6 +162,7 @@ class ImageResizerRouteTest extends TestCase
     #[Test]
     public function original_is_refused_unless_the_project_allows_it(): void
     {
+        config()->set('image-resizer.strict', true);
         $this->makeMediaTable();
         $this->makeMedia(5, $this->png(100, 50));
 
@@ -147,6 +191,7 @@ class ImageResizerRouteTest extends TestCase
     #[Test]
     public function every_spelling_of_a_size_is_one_cache_entry(): void
     {
+        config()->set('image-resizer.strict', true);
         $this->cached('5', '100xnull', 'resize.webp', 'one entry');
 
         foreach (['w/100/h/null', 'w/0100/h/None', 'w/100/h/0', 'w/100.9/h/-1', 'w/100/h/null'] as $size) {
@@ -247,8 +292,32 @@ class ImageResizerRouteTest extends TestCase
     }
 
     #[Test]
+    public function a_valid_signature_does_not_open_a_type_or_a_size_the_route_refuses(): void
+    {
+        config()->set('image-resizer.signed', true);
+
+        $blur = Access::signature(5, 100, 'null', 'blur', 'thumb.webp');
+        $huge = Access::signature(5, 99999, 'null', 'resize', 'thumb.webp');
+
+        $this->get("/image_resizer/5/w/100/h/null/blur/thumb.webp?s={$blur}")->assertStatus(422);
+        $this->get("/image_resizer/5/w/99999/h/null/resize/thumb.webp?s={$huge}")->assertStatus(422);
+    }
+
+    #[Test]
+    public function a_signing_project_with_no_key_never_serves_an_image(): void
+    {
+        config()->set('image-resizer.signed', true);
+        config()->set('app.key', '');
+
+        // No signature is refused as ever; one that cannot be checked (nothing to check it with) is a server error, not a pass.
+        $this->get('/image_resizer/5/w/100/h/null/resize/thumb.webp')->assertForbidden();
+        $this->get('/image_resizer/5/w/100/h/null/resize/thumb.webp?s=anything')->assertStatus(500);
+    }
+
+    #[Test]
     public function neither_type_goes_above_the_source(): void
     {
+        config()->set('image-resizer.strict', true);
         $this->makeMediaTable();
         $this->makeMedia(5, $this->png(100, 50));
 
@@ -265,8 +334,7 @@ class ImageResizerRouteTest extends TestCase
     public function the_limiter_answers_429_after_the_requests_a_minute_it_is_set_to(): void
     {
         config()->set('image-resizer.signed', true);
-
-        $this->assertSame(120, config('image-resizer.throttle'), 'the shipped limit');
+        config()->set('image-resizer.throttle', 120);
 
         for ($request = 1; $request <= 120; $request++) {
             $this->get('/image_resizer/5/w/100/h/null/resize/thumb.webp')->assertForbidden();

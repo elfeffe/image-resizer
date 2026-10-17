@@ -22,8 +22,15 @@ class PruneCommandTest extends TestCase
         Storage::forgetDisk('prune_test');
     }
 
+    /** @var list<string> folders a test made unwritable: opened again before the root is removed */
+    private array $locked = [];
+
     protected function tearDown(): void
     {
+        foreach ($this->locked as $folder) {
+            @chmod($folder, 0755);
+        }
+
         File::deleteDirectory($this->root);
 
         parent::tearDown();
@@ -53,6 +60,23 @@ class PruneCommandTest extends TestCase
         $this->assertFileExists($oldButRead);
     }
 
+    public function test_a_file_it_could_not_delete_is_not_counted_as_deleted_and_the_command_fails(): void
+    {
+        $stays = $this->variant('1/800x600/resize.jpg', madeDaysAgo: 45);
+        $goes = $this->variant('2/800x600/resize.jpg', madeDaysAgo: 45);
+        // The folder of the first belongs to someone else, as the web user's 0755 folders do to the crontab's user.
+        chmod(dirname($stays), 0555);
+        $this->locked[] = dirname($stays);
+
+        $this->artisan('image-resizer:prune', ['--days' => 30])
+            ->expectsOutputToContain('Deleted 1 cached resizes')
+            ->expectsOutputToContain('1 more could not be deleted')
+            ->assertFailed();
+
+        $this->assertFileExists($stays);
+        $this->assertFileDoesNotExist($goes);
+    }
+
     public function test_it_refuses_less_than_one_day(): void
     {
         $this->artisan('image-resizer:prune', ['--days' => 0])->assertFailed();
@@ -66,6 +90,17 @@ class PruneCommandTest extends TestCase
         $this->assertCount(1, $events);
         $this->assertSame('40 4 * * *', $events->first()->expression);
         $this->assertFalse($events->first()->onOneServer, 'a local disk is each server\'s own');
+    }
+
+    public function test_a_host_that_queues_the_prune_itself_turns_the_schedule_off(): void
+    {
+        config()->set('image-resizer.prune.schedule', false);
+
+        $events = collect(app(Schedule::class)->events())
+            ->filter(fn ($event) => str_contains((string) $event->command, 'image-resizer:prune'));
+
+        $this->assertCount(0, $events);
+        $this->artisan('image-resizer:prune', ['--dry-run' => true])->assertSuccessful();
     }
 
     public function test_it_runs_on_one_server_only_when_the_disk_is_shared(): void

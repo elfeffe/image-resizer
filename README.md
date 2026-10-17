@@ -223,28 +223,43 @@ the configured `root` prefix and are never written to the app disk.
 ## Access control
 
 `/image_resizer/{id}/w/{w}/h/{h}/{type}/{file}` takes any media id and asks for no login, so unless a project closes it a counter
-loop (`/image_resizer/1/…`, `/2/…`) lists everything the project stores. These rules apply to every project; signing is opt-in.
+loop (`/image_resizer/1/…`, `/2/…`) lists everything the project stores. **A project that sets none of the flags below is served
+exactly as it was before these rules existed** (same URLs, same cache layout, same answers; one thing apart: only the route's own
+segments are read, see *Every project*). It opts in with `strict`, or with `signed`, which includes `strict`.
 
 | Key | Env | Default | Purpose |
 |---|---|---|---|
-| `signed` | `IMAGERESIZER_SIGNED` | `false` | Sign every URL the builders make and refuse any other request (below) |
+| `signed` | `IMAGERESIZER_SIGNED` | `false` | Sign every URL the builders make and refuse any other request; implies `strict` |
 | `signature_key` | `IMAGERESIZER_SIGNATURE_KEY` | `app.key` | The HMAC key |
-| `allow_original` | `IMAGERESIZER_ALLOW_ORIGINAL` | `false` | Serve `type=original` (a redirect to the media's own file) |
-| `max_dimension` | `IMAGERESIZER_MAX_DIMENSION` | `4096` | The largest `w` or `h`; more is a 422 |
-| `throttle` | `IMAGERESIZER_THROTTLE` | `120` | Requests a minute per address (named limiter `image-resizer`); 0 turns it off |
+| `strict` | `IMAGERESIZER_STRICT` | `false` | Hold the route to the types, the size limit and the `original` gate, without signing |
+| `allow_original` | `IMAGERESIZER_ALLOW_ORIGINAL` | `false` | Serve `type=original` in a strict project |
+| `max_dimension` | `IMAGERESIZER_MAX_DIMENSION` | `4096` | The largest `w` or `h` in a strict project; more is a 422 |
+| `throttle` | `IMAGERESIZER_THROTTLE` | unset | Requests a minute per address (named limiter `image-resizer`); unset or 0 is no limit |
+| `prune.schedule` | `IMAGERESIZER_PRUNE_SCHEDULE` | `true` | `false`: the package does not schedule `image-resizer:prune`, the host runs it |
 
-### Always on
+### Strict (`strict`, or `signed`)
 
 - **Sizes:** `w` and `h` above `max_dimension` are a 422. A width or height that is not a positive number (`0`, `None`) still means the
   source's own size, and every spelling of a size (`0100`, `h/None`) is one cache entry. The builders ask for the limit at most.
 - **Types:** `resize`, `fit`, `null` (the file re-encoded at its own size, what `getMediaHtml()` asks for without a type), `crop`
-  (never implemented, so also the file at its own size; two Neoteo themes still ask for it) and `original`; any other is a 422. `resize` and `fit` never go above the source: a `fit` box larger than the image crops it to the box's
-  ratio at its own size.
+  (never implemented, so also the file at its own size; two Neoteo themes still ask for it) and `original`; any other is a 422.
+  `resize` and `fit` never go above the source: a `fit` box larger than the image crops it to the box's ratio at its own size.
 - **`original`** is a 403 unless `allow_original` is on. No builder of this package makes such a URL.
-- **Throttle:** above `throttle` requests a minute from one address the route answers 429 with `Retry-After`. A cache hit counts, and a
-  page of thumbnails asks for one request each, so a dense page needs a higher number. Behind a proxy or a CDN the address is the proxy's
-  unless the host trusts it. A host that wants another rule defines the limiter `image-resizer` itself.
+- `allow_original` is not a confidentiality control in a project that does not sign: `type=null`, `crop`, `w/0` and `w/4096` return the
+  same picture at full size. Only signing keeps a stranger from it.
+
+### Throttle
+
+Above `throttle` requests a minute from one address the route answers 429 with `Retry-After`. It is off unless the host sets a number.
+A cache hit counts, and a page of thumbnails asks for one request each, so a dense page needs a high number. Behind a proxy or a CDN
+the address is the proxy's unless the host trusts it, and a CDN pull zone sends every visitor from a few addresses: size it for them.
+A host that wants another rule defines the limiter `image-resizer` itself.
+
+### Every project
+
 - **Route segments only:** a `?type=original` or `?img=7` in the query string changes nothing; the code reads the path's own segments.
+  Laravel's `Request::__get()` prefers a query-string value to a route parameter, which let a visitor steer the controller, past a signature
+  and past a host that checks the route's `img` (PostFiber's tenant guard does).
 
 ### Signed URLs
 
@@ -259,18 +274,26 @@ s = hash_hmac('sha256', "{id}|{w}|{h}|{type}|{name}.{ext}", signature_key ?? app
 the encoder follows `ext`, and an object-storage resize is kept under a key that carries the name.
 
 - A URL is valid for as long as the key is: it survives a deploy, and rotating `app.key` (or `signature_key`) turns every URL already
-  handed out, in pages, feeds and emails, into a 403.
+  handed out, in pages, feeds and emails, into a 403 and every cache folder into a miss (`APP_PREVIOUS_KEYS` is not honoured: do not
+  rotate it casually).
 - Resizes are cached under a token derived from the id (`Access::folder()`), not the id. A file kept at `{id}/{w}x{h}/{type}.{ext}` is
   reachable by anyone who knows three small numbers (`/storage/image_resizer/…` when the disk is linked into `public`, the Apache and
   Nginx fast paths, a public bucket), and none of them can check a signature. The signature is never part of a path: all the signed
-  URLs of a variant share one file. Turning `signed` on leaves the old `{id}` folders unread; delete them (`image-resizer:prune` does,
-  in time).
+  URLs of a variant share one file. Turning `signed` on leaves the old `{id}` folders unread by the app; delete them once, as the user
+  that wrote them (`image-resizer:prune` would only in time, and never while someone still fetches them: it goes by the last read).
 - Never build a resizer URL by hand and never rewrite its `w`, `h` or `type` in JavaScript or in a consumer of an API: that is a 403.
   Ask the builders for the size you need.
 - The fast paths of `image-resizer:install-htaccess` and the Nginx rewrite above never find a file in a project that signs; do not rely
-  on them there. A CDN pull zone must forward the query string to the app (`?s=` is part of the URL).
+  on them there. A CDN pull zone must forward the query string to the app (`?s=` is part of the URL), and the CDN's own cache must not
+  ignore it.
 - `serve.mode=redirect` hands the object's own URL to whoever passes the check, and that bucket is public-read: whoever has seen the
   redirect can keep reading the object. Use `cdn_origin` with a private bucket for confidential media.
+
+### Shortcodes (optional)
+
+The `[media-library-item]` shortcode is registered only when `webwizo/laravel-shortcodes` is installed and its provider registered (it
+is a Composer *suggestion*, not a requirement: its provider replaces Laravel's view factory). A project without it boots and renders as
+before; a project that uses the shortcode requires the package itself.
 
 ## Usage
 
@@ -648,7 +671,7 @@ return [
 
 Every resize is written with its metadata stripped (EXIF and ICC, once the orientation they describe has been applied). JPEG and WebP use `IMAGERESIZER_QUALITY` (default 78). With `IMAGERESIZER_AVIF=true` the `<picture>` offers an AVIF `<source>` before the WebP one, which browsers that take it prefer (about 10–30 % smaller for the same look); it costs more CPU per resize, so it is off by default. `IMAGERESIZER_AVIF_QUALITY` (default 60, AVIF's own scale) and `IMAGERESIZER_AVIF_SPEED` (libheif's 0 slowest and best to 10 fastest, default 7) tune it. The `.avif` extension is always accepted by the route.
 
-Cached resizes nobody has asked for in `IMAGERESIZER_PRUNE_DAYS` days (default 30; `0` turns the schedule off) are deleted every night at 04:40 by `image-resizer:prune`; on a local disk the last read counts as the last use, on a remote disk the file's age does, and folders left empty are removed. `php artisan image-resizer:prune --days=7 --dry-run` shows what a run would delete.
+Cached resizes nobody has asked for in `IMAGERESIZER_PRUNE_DAYS` days (default 30; `0` turns the schedule off) are deleted every night at 04:40 by `image-resizer:prune`; on a local disk the last read counts as the last use, on a remote disk the file's age does, and folders left empty are removed. `php artisan image-resizer:prune --days=7 --dry-run` shows what a run would delete. A file counts as deleted only once it is gone: the files the user running the command may not remove are reported apart and the command exits with a failure. The crontab's `schedule:run` often runs as another user than the web server that wrote the cache; set `IMAGERESIZER_PRUNE_SCHEDULE=false` and run `image-resizer:prune` from a queued job (the queue worker runs as the web user).
 
 ## Blade Directives
 

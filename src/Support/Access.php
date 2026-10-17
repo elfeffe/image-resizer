@@ -10,6 +10,9 @@ use RuntimeException;
  * Who may ask the resizer for what: whether a project signs its URLs and how, which types and sizes the route serves, and whether
  * `type=original` is served at all. One place, because the URL builder (HasImageResizer), the route (ImageResizerController) and a
  * host's tests must agree on every byte of it.
+ *
+ * A project that sets neither `signed` nor `strict` gets what the package did before these rules existed: the types, sizes and
+ * `original` below are not checked and the URL builder does not clamp.
  */
 final class Access
 {
@@ -27,6 +30,15 @@ final class Access
         return (bool) config('image-resizer.signed', false);
     }
 
+    /**
+     * Whether the route holds requests to the types, the size limit and the `original` gate, and the URL builder to the limit: the
+     * project says `strict`, or signs (a signature is worth little if `original` stays open). Off, nothing of the three is checked.
+     */
+    public static function strict(): bool
+    {
+        return self::signed() || (bool) config('image-resizer.strict', false);
+    }
+
     public static function allowsOriginal(): bool
     {
         return (bool) config('image-resizer.allow_original', false);
@@ -38,10 +50,10 @@ final class Access
         return max(1, (int) config('image-resizer.max_dimension', 4096));
     }
 
-    /** A numeric size above the limit comes back as the limit; anything else (`null`, a word) as it was. */
+    /** A numeric size above the limit comes back as the limit (in a strict project); anything else (`null`, a word) as it was. */
     public static function clamp(mixed $dimension): mixed
     {
-        return is_numeric($dimension) && (int) $dimension > self::maxDimension() ? self::maxDimension() : $dimension;
+        return self::strict() && is_numeric($dimension) && (int) $dimension > self::maxDimension() ? self::maxDimension() : $dimension;
     }
 
     /**

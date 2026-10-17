@@ -52,10 +52,11 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             InstallHtaccessCommand::class,
         ]);
 
-        // The cache is pruned every night, unless the host set the days to 0. A local disk is each server's own, so each
-        // prunes it; a remote disk is shared, so one server prunes it for all.
+        // The cache is pruned every night, unless the host set the days to 0 or `prune.schedule` to false (it queues the prune itself: the
+        // crontab's `schedule:run` runs as the CLI user, who cannot delete what the web user wrote). A local disk is each server's own,
+        // so each prunes it; a remote disk is shared, so one server prunes it for all.
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
-            if ((int) config('image-resizer.prune.days', 30) <= 0) {
+            if ((int) config('image-resizer.prune.days', 30) <= 0 || ! config('image-resizer.prune.schedule', true)) {
                 return;
             }
 
@@ -66,9 +67,9 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             }
         });
 
-        // The route's limiter: `image-resizer.throttle` requests a minute per address, 0 for none.
+        // The route's limiter: `image-resizer.throttle` requests a minute per address; unset or 0 lets every request through untouched.
         RateLimiter::for('image-resizer', function (Request $request): Limit {
-            $perMinute = (int) config('image-resizer.throttle', 120);
+            $perMinute = (int) config('image-resizer.throttle');
 
             return $perMinute > 0 ? Limit::perMinute($perMinute)->by($request->ip()) : Limit::none();
         });
@@ -106,7 +107,9 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             app(QueuesMissingLqipData::class)->forModel($model);
         });
 
-        if (class_exists(Shortcode::class)) {
+        // webwizo/laravel-shortcodes is a suggestion. Its facade can exist while its provider is not registered (excluded from
+        // discovery), and registering then fails on the missing `shortcode` binding: both are asked.
+        if (class_exists(Shortcode::class) && $this->app->bound('shortcode')) {
             Shortcode::register('media-library-item', MediaLibraryItem::class);
         }
 
