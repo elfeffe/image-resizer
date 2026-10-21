@@ -703,6 +703,11 @@ Outputs:
 <script src="/vendor/image-resizer/js/image-resizer.js"></script>
 ```
 
+It is a classic script, so the build is an IIFE (`vite.config.js`): it declares nothing in the page's global scope (only the
+`window.__imageResizerStarted` flag) and cannot clash with another classic script's names. A bundle in ES format once
+broke filament-breezy.js with "Identifier 'p' has already been declared"; `BuiltScriptIsSelfContainedTest` guards it.
+After rebuilding, republish into each app (`php artisan vendor:publish --tag=image-resizer-assets --force`).
+
 ## Building Assets
 
 The package includes its own build system for development:
