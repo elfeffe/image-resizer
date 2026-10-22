@@ -48,3 +48,8 @@ class Product extends Model implements HasMedia
 - Build a URL only with `getMediaUrl()`, `getMediaHtml()` or `getFriendlyImageUrl()`: never by hand, never by rewriting a size in JavaScript. Keep `HasImageResizer` and `ImageResizerController::admit()` agreeing on every byte of the signed path, and the signature out of every cache path.
 - `webwizo/laravel-shortcodes` is a suggestion: guard every use with `class_exists` and `$this->app->bound('shortcode')`.
 - `image-resizer:prune` counts a file only once it is deleted; a host that queues it itself sets `image-resizer.prune.schedule` false.
+
+### Preparing resizes before the first view
+
+- A model opts in by defining `public function imageResizerWarmUrls(Media $media): array`, returning the resize URLs its views ask for (built with `getMediaUrl()`); `WarmResizesJob` then makes them right after the image is stored, from one read of the original. `HasImageResizer` has no default for it: a model without the method never gets a job.
+- Keep the method in step with the sizes the views use, and run `image-resizer:warm` (`--model=` limits it) after changing them. `ImageResizerController::warm()` reads each URL through the route's own `admit()`: do not make a second path to the cache.

@@ -23,6 +23,7 @@ use Intervention\Image\Interfaces\ImageInterface;
 use League\Flysystem\UnableToReadFile;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class ImageResizerController extends Controller
 {
@@ -292,10 +293,119 @@ class ImageResizerController extends Controller
         }
     }
 
+    /**
+     * Makes, for each URL, the resize a GET of that URL would make and keeps it where that GET looks for it, unless it is already
+     * there; returns how many it made. A view's thumbnails would otherwise each be made by the first request that asks for them, and
+     * each of those downloads the whole original again (from a bucket that is half a second per request, and a worker held for each);
+     * here the original is read and decoded once, for all of them, and only if one is missing.
+     *
+     * A URL is read as the route reads it (matched, then admitted: the signature and, in a strict project, the canonical spelling are
+     * checked as for a request), so what it makes is exactly the file that URL is served from. One that is not this media's, is
+     * `original`, is refused by the route or is not a resizer URL at all is skipped. A source that is not there, is empty or cannot be
+     * decoded ends the call quietly with what was made; a storage failure is as loud as it is for a request.
+     *
+     * @param  iterable<mixed>  $urls  absolute, on another host or behind a `serve.url` prefix: from the first `/image_resizer/` on is read
+     */
+    public function warm(Media $media, iterable $urls): int
+    {
+        $this->media = $media;
+        $remote = $this->storageDriver() === 's3';
+        $disk = Storage::disk($remote ? (string) config('image-resizer.storage.disk', 'image_resizer') : 'image_resizer');
+        $source = null;
+        $made = 0;
+
+        foreach ($urls as $url) {
+            $request = is_string($url) ? $this->requestFor($url) : null;
+
+            if ($request === null || $request->type === 'original' || (string) $request->img !== (string) $media->getKey()) {
+                continue;
+            }
+
+            $key = $remote ? $this->objectStoragePath($request) : $this->localCachePath($request);
+
+            if ($remote ? $this->objectExists($disk, $key) : $disk->exists($key)) {
+                continue;
+            }
+
+            $source ??= $this->decodeForWarming();
+
+            if ($source === null) {
+                return $made;
+            }
+
+            try {
+                // Each variant is made from its own copy: processImage() scales the image it is given.
+                $contents = (string) $this->processImage($request, clone $source);
+            } catch (ImageDecoderException $e) {
+                Log::info("Image resizer: media {$media->getKey()} was not warmed further, its file cannot be processed ({$e->getMessage()}).");
+
+                return $made;
+            } catch (\Exception $e) {
+                Log::error("Image resizer: processing error for media {$media->getKey()}: {$e->getMessage()}");
+
+                continue;
+            }
+
+            if ($remote) {
+                $this->writeObject($disk, $key, $contents, $this->responseMime($request));
+            } else {
+                $disk->put($key, $contents);
+            }
+
+            $made++;
+        }
+
+        return $made;
+    }
+
+    /** The request a GET of the URL would be, as the route sees it: matched and admitted; null when the route would not serve it. */
+    private function requestFor(string $url): ?Request
+    {
+        $at = strpos($url, '/image_resizer/');
+
+        if ($at === false) {
+            return null;
+        }
+
+        $request = Request::create(substr($url, $at));
+
+        try {
+            $route = app('router')->getRoutes()->match($request);
+
+            // Any other route that answers to the path (a host's own, a fallback) is not this controller's to admit.
+            if ($route->getActionMethod() !== 'show' || ! is_a($route->getControllerClass(), self::class, true)) {
+                return null;
+            }
+
+            $request->setRouteResolver(static fn () => $route);
+            $this->admit($request);
+        } catch (HttpException) {
+            return null;
+        }
+
+        return $request;
+    }
+
+    private function decodeForWarming(): ?ImageInterface
+    {
+        try {
+            return $this->decodeSourceImage($this->imageManager());
+        } catch (ImageDecoderException $e) {
+            Log::info("Image resizer: media {$this->media->getKey()} was not warmed, its file cannot be decoded ({$e->getMessage()}).");
+
+            return null;
+        }
+    }
+
+    /** Metadata goes once the orientation it describes has been applied (autoOrientation is on). */
+    private function imageManager(): ImageManager
+    {
+        return ImageManager::usingDriver(Driver::class, strip: true);
+    }
+
     protected function generateEncodedImage(Request $request): EncodedImageInterface
     {
-        // Metadata goes once the orientation it describes has been applied (autoOrientation is on).
-        $manager = ImageManager::usingDriver(Driver::class, strip: true);
+        $manager = $this->imageManager();
 
         try {
             $image = $this->decodeSourceImage($manager);

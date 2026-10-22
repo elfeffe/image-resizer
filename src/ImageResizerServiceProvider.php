@@ -5,6 +5,7 @@ namespace Elfeffe\ImageResizer;
 use Elfeffe\BuilderComponent\View\Components\Image;
 use Elfeffe\ImageResizer\Commands\CalculateLqipCommand;
 use Elfeffe\ImageResizer\Commands\PruneCommand;
+use Elfeffe\ImageResizer\Commands\WarmResizesCommand;
 use Elfeffe\ImageResizer\Console\Commands\InstallHtaccessCommand;
 use Elfeffe\ImageResizer\Observers\MediaObserver;
 use Elfeffe\ImageResizer\Shortcodes\MediaLibraryItem;
@@ -49,6 +50,7 @@ class ImageResizerServiceProvider extends PackageServiceProvider
         $this->commands([
             PruneCommand::class,
             CalculateLqipCommand::class,
+            WarmResizesCommand::class,
             InstallHtaccessCommand::class,
         ]);
 
@@ -232,6 +234,7 @@ class ImageResizerServiceProvider extends PackageServiceProvider
             ->hasMigration('create_image-resizer_table')
             ->hasCommand(PruneCommand::class)
             ->hasCommand(CalculateLqipCommand::class)
+            ->hasCommand(WarmResizesCommand::class)
             ->hasCommand(InstallHtaccessCommand::class)
             ->publishesServiceProvider('ImageResizerServiceProvider')
             ->hasAssets();

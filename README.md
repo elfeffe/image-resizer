@@ -673,6 +673,35 @@ Every resize is written with its metadata stripped (EXIF and ICC, once the orien
 
 Cached resizes nobody has asked for in `IMAGERESIZER_PRUNE_DAYS` days (default 30; `0` turns the schedule off) are deleted every night at 04:40 by `image-resizer:prune`; on a local disk the last read counts as the last use, on a remote disk the file's age does, and folders left empty are removed. `php artisan image-resizer:prune --days=7 --dry-run` shows what a run would delete. A file counts as deleted only once it is gone: the files the user running the command may not remove are reported apart and the command exits with a failure. The crontab's `schedule:run` often runs as another user than the web server that wrote the cache; set `IMAGERESIZER_PRUNE_SCHEDULE=false` and run `image-resizer:prune` from a queued job (the queue worker runs as the web user).
 
+## Preparing resizes before the first view
+
+A resize is made by the first request for its URL, and that request downloads the whole original first: from a bucket that is about half a second plus the transfer, again for every size of the same image, with a web worker held the whole time. A page of new thumbnails queues behind those downloads. A model can say which resize URLs its views will ask for, and the package makes them in a queued job right after the image is stored, reading the original once for all of them, so the first view finds them cached.
+
+Opt in by defining the public method `imageResizerWarmUrls(Media $media): array` on the model, returning the URLs as it builds them for its views (`getMediaUrl()`, `getFriendlyImageUrl()`):
+
+```php
+use Elfeffe\ImageResizer\Traits\HasImageResizer;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
+
+class Post extends Model implements HasMedia
+{
+    use HasImageResizer, InteractsWithMedia;
+
+    public function imageResizerWarmUrls(Media $media): array
+    {
+        return [
+            $this->getMediaUrl($media, 320, 240, 'fit'),
+            $this->getMediaUrl($media, 640, null, 'resize', null, 'image/webp'),
+        ];
+    }
+}
+```
+
+- Every URL is read the way the route reads a request for it, so what is made is exactly the file that URL is served from: a signed project's signatures are checked, a strict project's spelling is the canonical one, and the file is kept where the route looks for it (the cache disk, or the bucket). A URL the route would refuse, that is not this image's, that is `type=original` or that is not a resizer URL is skipped. One that is cached already is left as it is.
+- `WarmResizesJob` is queued on `IMAGERESIZER_QUEUE` five seconds after a media is created (after commit; the row is written before its file is), for `image/*` except SVG and GIF. It is unique per media for an hour, may run 120 seconds and is tried 3 times. It is best effort, like the placeholder job: a media that is gone, a file that is not there, is empty or cannot be decoded ends it quietly, and a resize it did not make is made by the first request, as ever. A failure of the bucket fails the job, which is tried again, as it fails a request.
+- A model that does not define the method never gets a job, and nothing changes for a project that defines it on none: `HasImageResizer` has no default for it.
+- `php artisan image-resizer:warm` queues the job for every existing image of the models that define the method, for the images stored before the method was there and after a project changes its sizes (only the sizes that are missing are made). `--model=` limits it to a model class or morph alias, and may be repeated.
+
 ## Blade Directives
 
 The package provides convenient Blade directives:
@@ -829,6 +858,7 @@ packages/elfeffe/image-resizer/
 ├── src/
 │   ├── Traits/HasImageResizer.php
 │   ├── Jobs/CalculateLqipJob.php
+│   ├── Jobs/WarmResizesJob.php
 │   └── ImageResizerServiceProvider.php
 ├── resources/
 │   ├── views/placeholder.blade.php

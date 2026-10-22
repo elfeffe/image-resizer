@@ -15,6 +15,7 @@ Use this skill when working on `elfeffe/image-resizer`, optimized media output, 
 | `Http\Controllers\ImageResizerController` | Dynamic resize endpoint |
 | `Support\Access` | Signature, cache folder, type and size limits |
 | `Jobs\CalculateLqipJob` | Generates BlurHash and LQIP data |
+| `Jobs\WarmResizesJob` | Makes the resizes a model's `imageResizerWarmUrls()` lists, right after upload |
 | `routes/web.php` | Registers `image_resizer/...` route |
 | `Console\Commands\InstallHtaccessCommand` | Apache optimization helper |
 
@@ -60,6 +61,11 @@ Include the package directives once in the layout:
 - `type=original` redirects to the original media URL, and is a 403 unless `image-resizer.allow_original` is on.
 - Access control (`Support\Access`, `ImageResizerController::admit()`): a project that sets neither `image-resizer.signed` nor `image-resizer.strict` is served exactly as before; only the route's own segments are read (a query-string `type`/`img` never overrides the route). A strict project (or one that signs): `w`/`h` above `image-resizer.max_dimension` and a `type` outside `Access::TYPES` are a 422, `original` a 403 unless `image-resizer.allow_original`, `fit` never above the source. `image-resizer.throttle` (unset = off) sets the named limiter `image-resizer` (429). With `image-resizer.signed` every builder URL ends in `?s=` (HMAC of `{id}|{w}|{h}|{type}|{name}.{ext}`), the route answers 403 to any other request before it reads anything, and the cache lives under `Access::folder()`'s token. Never build a resizer URL by hand. `webwizo/laravel-shortcodes` is optional (guard with `class_exists` and `app()->bound('shortcode')`); `image-resizer.prune.schedule` false lets a host queue `image-resizer:prune` itself.
 - Objects are stored with `Content-Type` and `Cache-Control: public, max-age=2628000`; storage failures log + 500 (never silent).
+
+## Preparing resizes
+
+- A model opts in with `public function imageResizerWarmUrls(Media $media): array` (the URLs its views ask for, from `getMediaUrl()`); `WarmResizesJob` is queued when its media is created and makes them from one read of the original. `image-resizer:warm [--model=*]` queues it for existing media.
+- `ImageResizerController::warm()` resolves each URL through the route and `admit()`, so signatures and canonical spelling are those of a real request.
 
 ## Best practices
 
